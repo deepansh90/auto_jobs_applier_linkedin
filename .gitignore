@@ -7,8 +7,11 @@ config/questions.py
 config/profile.json
 config/answers.py
 
+config/user.settings.json
+config/.setup_complete
+
 # Personal Data & Logs
-all excels/
+history/
 all resumes/
 logs/
 resume_output/

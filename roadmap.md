@@ -1,7 +1,6 @@
 # Roadmap
 
-Deferred work. Nothing here blocks day-to-day use.
-
+ 
 ## Done
 
 - Per-session log file `logs/session_YYYYMMDD.log` (`modules/helpers.py::get_log_path`).
@@ -50,4 +49,23 @@ Upstream is ~800 LoC smaller and snappier. Ranked by ROI:
 - **#7 Collapse dead UI-filter path** — `apply_filters` UI branch is ~120 LoC of dead code at default config (`use_url_filters_only=True`). Lazy-import only when needed.
 - **#8 Per-run company caches** — cache `company -> blacklisted` and `company -> about_text` for the run. Saves repeat scroll+regex at same company.
 - **#9 Tighter stale-element retry** — current retry sleeps 1 s × 3 = up to 3 s added. Drop to 0.3 s. Niche.
+- **#10 Lazy Gemini import** — squelch its 6-line FutureWarning. Cosmetic, ~500 ms cold start.
 
+## Deferred: rebrand to stop looking like a fork
+
+Goal: distinct name, module layout, function names, log artefacts.
+
+Ordered by risk (low → high):
+
+- **#12 Package layout.** `runAiBot.py` + `modules/` → `applybot/` package with `__main__.py`, `navigator.py`, `ui.py`, `browser.py`, `ai/`. One `git mv` per PR, keep shims, e2e after each.
+- **#13 Rename public functions.** `apply_to_jobs` → `run_applications`, `answer_questions` → `fill_easy_apply_form`, `boolean_button_click` → `toggle_switch`, etc. One symbol per PR, alias old names for one release.
+- **#14 Rename visible artefacts.** `all excels/...csv` → `history/applications.csv`, `history/failures.csv`, `history/screenshots/`. Add one-shot migration helper on first run.
+- **#15 Tag `v0.1.0`** after #12–#14 land and a clean e2e passes.
+
+## Deferred: stealth_mode / detection
+
+Upstream uses `undetected_chromedriver` by default. We use Selenium
+Manager (simpler, Python 3.13 compatible). If LinkedIn starts
+rate-limiting our account (Easy Apply daily caps, CAPTCHAs), add an
+opt-in stealth branch with a startup compat check. Low priority until
+it bites.

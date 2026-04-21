@@ -36,9 +36,9 @@ from config.settings import *
 # One-time resume -> profile.json autofill (new-user flow). No-op when profile.json exists.
 try:
     from applybot.resume_autofill import ensure_profile as _ensure_profile
-    _CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config")
-    _RESUME_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                globals().get("default_resume_path", "") or "resume.pdf")
+    _ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _CONFIG_DIR = os.path.join(_ROOT_DIR, "config")
+    _RESUME_PATH = os.path.join(_ROOT_DIR, globals().get("default_resume_path", "") or "resume.pdf")
     _ensure_profile(_CONFIG_DIR, _RESUME_PATH)
 except Exception as _autofill_err:
     print(f"[autofill] skipped: {_autofill_err}")
@@ -1933,7 +1933,7 @@ def run_applications(search_terms: list[str]) -> None:
                                 print_lg("---- OFFLINE MODE: Skipping tailored resume generation.")
                             elif isinstance(tailored_data, dict):
                                 # Ensure we save to the root "resume_output" folder
-                                root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                                root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                                 output_dir = os.path.join(root_dir, "resume_output")
                                 md_res, tex_res = generate_tailored_files(tailored_data, master_resume_data, output_dir, company, title)
                                 print_lg(f"---- Tailored resumes generated: {md_res}, {tex_res}")
