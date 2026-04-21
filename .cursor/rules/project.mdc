@@ -1,0 +1,31 @@
+---
+description: Project-specific rules for linkedin_easy_auto_applier_agent (Selenium-based LinkedIn Easy Apply bot)
+globs: **/*.py
+---
+
+# Project Rules - linkedin_easy_auto_applier_agent
+
+## Core Principles
+- This is a Selenium-driven browser automation bot. Stability and non-breaking changes take priority over refactors.
+- Prefer minimal, surgical fixes over architectural rewrites. `runAiBot.py` is a known large module; do not split it without explicit approval.
+- Respect existing patterns: `print_lg` for logging, globals for `driver`/`wait`/`actions`, `buffer(n)` for sleeps.
+
+## Selenium Interaction
+- Always pass the `WebDriver` (not a `WebElement`) to helpers that may call `execute_script` (e.g. `wait_span_click`).
+- After locating a modal, add a small `buffer(1-2)` before the first interaction to let it render.
+- Prefer `aria-label` XPath fallbacks over brittle class/text-only selectors for clickable elements.
+- Any new click path must have a JS-click (`driver.execute_script("arguments[0].click();", el)`) fallback.
+
+## PII and Secrets
+- NEVER commit `config/personals.py`, `config/questions.py`, `config/master_resume.json`, `config/custom_questions.py`, or `config/secrets.py`. They are gitignored.
+- Always use `<PLACEHOLDER>` values in example templates (`*.example.py`, `*.example.json`).
+- Never log full resume content, email, phone, or address.
+
+## AI Dispatcher
+- All AI calls must go through `ai_call(method_name, ...)` which handles provider failover and offline mode.
+- When all providers are disabled, `ai_call` returns `{"error": "offline_mode", ...}`. Callers MUST handle this by degrading gracefully, not crashing.
+- Disable a provider permanently for the run on 401/auth errors; retry-switch only on 429/quota.
+
+## Search URL Construction
+- Use `build_linkedin_jobs_search_url(keywords)` for all job-search navigation. Do not hand-build URLs in new code.
+- Append `&f_EA=true` only via the `easy_apply_only` flag in `config/search.py`.

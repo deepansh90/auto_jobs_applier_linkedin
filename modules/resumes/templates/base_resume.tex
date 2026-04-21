@@ -1,0 +1,40 @@
+\PassOptionsToPackage{hidelinks}{hyperref}
+\documentclass{resume} % Use the custom resume.cls style
+
+\usepackage[left=0.4 in,top=0.3in,right=0.4 in,bottom=0.3in]{geometry}
+\usepackage{enumitem}
+\usepackage{tgpagella}
+\usepackage[hidelinks]{hyperref}
+\name{[[NAME]]}
+
+\address{[[PHONE]] \\ \href{mailto:[[EMAIL]]}{[[EMAIL]]} \\ \href{[[LINKEDIN]]}{[[LINKEDIN_TEXT]]}}
+
+\begin{document}
+
+\begin{rSection}{Summary}
+[[SUMMARY]]
+\end{rSection}
+
+\begin{rSection}{Technical Skills}
+\begin{itemize}[topsep=-0.1cm,itemsep=0pt,partopsep=0pt, parsep=0.1pt]
+[[SKILLS]]
+\end{itemize}
+\end{rSection}
+
+\begin{rSection}{Work Experience}
+[[EXPERIENCE]]
+\end{rSection}
+
+\begin{rSection}{Education}
+\begin{itemize}[topsep=-0.1cm,itemsep=0pt,partopsep=0pt, parsep=0.1pt]
+[[EDUCATION]]
+\end{itemize}
+\end{rSection}
+
+\begin{rSection}{Patents \& Technical Innovation}
+\begin{itemize}[topsep=-0.1cm,itemsep=0pt,partopsep=0pt, parsep=0.1pt]
+[[PATENTS]]
+\end{itemize}
+\end{rSection}
+
+\end{document}

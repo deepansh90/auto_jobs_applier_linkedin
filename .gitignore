@@ -1,0 +1,33 @@
+# Configuration & Secrets (contain PII - copy from *.example templates)
+config/secrets.py
+config/personals.py
+config/master_resume.json
+config/custom_questions.py
+config/questions.py
+config/profile.json
+config/answers.py
+
+# Personal Data & Logs
+all excels/
+all resumes/
+logs/
+resume_output/
+*.pdf
+
+# Environment & IDE
+__pycache__/
+venv/
+.DS_Store
+.vscode/
+.idea/
+.gemini/
+
+# Temporary Files
+old/
+temp/
+scratch/
+claude integration
+debug_output.txt
+auto-job-apply-profile/
+archive_test_profile/
+tests/
