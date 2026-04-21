@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 
 from config.settings import click_gap, smooth_scroll
-from modules.helpers import buffer, print_lg, sleep
+from applybot.helpers import buffer, print_lg, sleep
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -102,7 +102,7 @@ def multi_sel_noWait(driver: WebDriver, texts: list, actions: ActionChains = Non
                 print_lg("Click Failed! Didn't find '"+text+"'")
                 # print_lg(e)
 
-def boolean_button_click(
+def toggle_switch(
     driver: WebDriver,
     actions: ActionChains,
     text: str,

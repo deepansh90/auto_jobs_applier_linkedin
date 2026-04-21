@@ -4,8 +4,8 @@ from config.settings import showAiErrorAlerts
 from config.personals import ethnicity, gender, disability_status, veteran_status
 from config.questions import *
 
-from modules.helpers import print_lg, critical_error_log, convert_to_json, smart_confirm
-from modules.ai.prompts import *
+from applybot.helpers import print_lg, critical_error_log, convert_to_json, smart_confirm
+from applybot.ai.prompts import *
 
 from openai import OpenAI
 from openai.types.model import Model

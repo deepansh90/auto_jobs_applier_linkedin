@@ -2,8 +2,8 @@ from __future__ import annotations
 import google.generativeai as genai
 from config.secrets import llm_model, llm_api_key
 from config.settings import showAiErrorAlerts
-from modules.helpers import print_lg, critical_error_log, convert_to_json, smart_confirm
-from modules.ai.prompts import *
+from applybot.helpers import print_lg, critical_error_log, convert_to_json, smart_confirm
+from applybot.ai.prompts import *
 from typing import Literal
 
 def gemini_get_models_list():

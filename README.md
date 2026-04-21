@@ -1,68 +1,44 @@
-# linkedin_easy_auto_applier_agent
+# auto_jobs_applier_linkedin
 
-An automated LinkedIn Easy Apply agent: searches for jobs matching your
-preferences, answers Easy Apply questions using a multi-provider AI
-dispatcher (Gemini / OpenAI), and submits applications on
-your behalf.
+An automated LinkedIn Easy Apply agent that handles the entire application process seamlessly.
 
-Highlights:
+## What it does
 
-- **Easy Apply filter** — search URLs always carry `f_EA=true`.
-- **Multi-AI failover** — Gemini → OpenAI. Skips on auth
-  errors, retries on quota errors.
-- **Offline mode** — when all AI providers are unavailable, falls back
-  to static config values instead of crashing.
-- **Persistent session** — re-uses a logged-in Chrome profile to skip
-  most CAPTCHAs.
-- **Per-session logs + screenshots** — `logs/session_YYYYMMDD.log` and
-  `logs/screenshots/` for easy debugging.
+- **Automated Searching** — Uses precise search URLs (`f_EA=true`) to discover Easy Apply jobs matching your criteria.
+- **Smart Form Filling** — Answers complex multi-step application questions dynamically using a Gemini/OpenAI failover dispatcher.
+- **Offline Resilience** — Safely falls back to your static configuration values if AI providers hit rate-limits or are unavailable.
+- **Persistent Sessions** — Operates on a persistent local Chrome profile to eliminate repetitive CAPTCHAs and login prompts.
 
-## Quick start
+## Get running in 60 seconds
 
+### Path A: Setup Wizard (Recommended)
+Launch the frictionless Local UI to establish your baseline details in seconds.
 ```bash
 git clone https://github.com/deepansh90/auto_jobs_applier_linkedin.git
 cd auto_jobs_applier_linkedin
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 
-cp /path/to/your_resume.pdf resume.pdf
-cp config/secrets.example.py config/secrets.py && $EDITOR config/secrets.py
-# optional: cp config/answers.example.py config/answers.py && $EDITOR config/answers.py
+# Launch the Setup Wizard UI
+python -m applybot.setup
 
-python3 runAiBot.py
+# Start the bot
+python -m applybot
 ```
 
-On first run the agent extracts your name, email, phone, location,
-LinkedIn URL, skills and experience from `resume.pdf` into
-`config/profile.json` and uses that to answer form questions. Edit
-`config/profile.json` afterwards to fix any extracted field.
+### Path B: Manual Configuration (Power Users)
+If you prefer raw configuration without the Setup UI, you can populate the Python settings files manually.
+```bash
+cp config/secrets.example.py config/secrets.py && $EDITOR config/secrets.py
+# (See docs/CONFIGURE.md for other configurations)
+python runAiBot.py
+```
 
-## Security and privacy
+> **Note:** For advanced filtering, custom question answering, and a first-run checklist, see our comprehensive [Configuration Guide](docs/CONFIGURE.md).
 
-- **Never commit** `config/secrets.py`, `config/profile.json`, `config/personals.py`, generated `logs/`, or your resume PDF. Copy from `*.example` templates only; those templates stay in git without real credentials.
-- **LinkedIn password and API keys** live only on your machine (see `.gitignore`). Rotate keys if they were ever pasted into chat, logs, or a public repo.
-- **AI providers** (Gemini, OpenAI) receive prompts that can include résumé snippets and form questions—only enable AI if you accept that policy.
-- **Before `git push`**: run `git status` and confirm you are not adding ignored personal files. Optionally scan for accidental secrets:
+## Safety and Privacy
 
-  ```bash
-  git grep -nE 'AIza[0-9A-Za-z_-]{20,}|sk-[a-zA-Z0-9]{20,}|password\s*=' -- . ':!*.example.py' ':!**/archive_test_profile/**' || true
-  ```
-
-  Replace any real keys in tracked files with placeholders before pushing.
-
-## Documentation
-
-- [docs/CONFIGURE.md](docs/CONFIGURE.md) — what to edit before running.
-- [docs/RUN.md](docs/RUN.md) — install + run.
-- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) — common issues.
-- [docs/LINKEDIN_URL_REFERENCE.md](docs/LINKEDIN_URL_REFERENCE.md) —
-  which LinkedIn search URL params are respected.
-
-## Terms
-
-Automated interaction with LinkedIn may violate their Terms of Service.
-Use at your own risk on your own account.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+- **Never commit your configuration** (`config/secrets.py`, `config/user.settings.json`, resume, etc.). They are natively ignored by git to protect you.
+- **LinkedIn Credentials are localized.** Passwords and keys exist only on your host machine.
+- **AI Analytics.** Utilizing the Gemini/OpenAI dispatcher involves sending snippets of your resume and parsed job applications out continuously.
+- **ToS Warning.** Automated interaction with LinkedIn violates their Terms of Service. Use strictly at your own discretion.

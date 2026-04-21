@@ -1,6 +1,6 @@
 import os
 import sys
-from modules.helpers import make_directories
+from applybot.helpers import make_directories
 from config.settings import (
     run_in_background,
     stealth_mode,
@@ -22,7 +22,7 @@ else:
     # from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
-from modules.helpers import (
+from applybot.helpers import (
     find_default_profile_directory,
     critical_error_log,
     print_lg,

@@ -17,7 +17,7 @@ _cors_origins = [
 ]
 CORS(app, resources={r"/applied-jobs*": {"origins": _cors_origins}})
 
-PATH = 'all excels/'
+PATH = 'history/'
 ##> ------ Karthik Sarode : karthik.sarode23@gmail.com - UI for excel files ------
 @app.route('/')
 def home():
@@ -38,7 +38,7 @@ def get_applied_jobs():
 
     try:
         jobs = []
-        with open(PATH + 'all_applied_applications_history.csv', 'r', encoding='utf-8') as file:
+        with open(PATH + 'applications.csv', 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             for row in reader:
                 jobs.append({
@@ -73,7 +73,7 @@ def update_applied_date(job_id):
     """
     try:
         data = []
-        csvPath = PATH + 'all_applied_applications_history.csv'
+        csvPath = PATH + 'applications.csv'
         
         if not os.path.exists(csvPath):
             return jsonify({"error": f"CSV file not found at {csvPath}"}), 404

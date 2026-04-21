@@ -67,7 +67,7 @@ Response schema for `extract_skills` function
 
 ##> ------ Dheeraj Deshwal : dheeraj9811 Email:dheeraj20194@iiitd.ac.in/dheerajdeshwal9811@gmail.com - Feature ------
 ##> Answer Questions
-# Structure of messages = `[{"role": "user", "content": answer_questions_prompt}]`
+# Structure of messages = `[{"role": "user", "content": fill_easy_apply_form_prompt}]`
 
 ai_answer_prompt = """
 You are an expert technical recruiter and a Senior Software Engineering Lead with 15+ years of experience. Your task is to concisely and professionally answer form questions for a Senior/Staff/Principal Software Engineer application.

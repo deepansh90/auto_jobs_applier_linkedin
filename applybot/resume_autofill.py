@@ -14,7 +14,7 @@ import os
 import re
 from typing import Any
 
-from modules.helpers import print_lg
+from applybot.helpers import print_lg
 
 
 PROFILE_SCHEMA_HINT = """
@@ -120,7 +120,7 @@ def _ai_extract(text: str) -> dict[str, Any] | None:
     try:
         from config.secrets import llm_api_key
         if llm_api_key and "YOUR_API_KEY" not in str(llm_api_key):
-            from modules.ai.geminiConnections import gemini_create_client, gemini_completion
+            from applybot.ai.geminiConnections import gemini_create_client, gemini_completion
             client = gemini_create_client()
             if client:
                 result = gemini_completion(client, prompt, is_json=True)
