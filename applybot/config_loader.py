@@ -27,18 +27,22 @@ def apply_user_overlay():
     import config.search
     import config.settings
     import config.secrets
-    try:
-        import config.personals
-    except ImportError:
-        pass
+    try: import config.personals
+    except ImportError: pass
+    try: import config.questions
+    except ImportError: pass
 
     target_map = {
         "search_terms": "config.search",
         "search_location": "config.search",
         "job_type": "config.search",
         "on_site": "config.search",
+        "current_experience": "config.search",
         "experience_level": "config.search",
         "default_resume_path": "config.settings",
+        "follow_companies": "config.settings",
+        "desired_salary": "config.questions",
+        "years_of_experience": "config.questions",
     }
 
     # Additionally, we can map things dynamically or statically.

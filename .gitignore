@@ -12,7 +12,6 @@ config/.setup_complete
 
 # Personal Data & Logs
 history/
-all resumes/
 logs/
 resume_output/
 *.pdf
@@ -32,5 +31,3 @@ scratch/
 claude integration
 debug_output.txt
 auto-job-apply-profile/
-archive_test_profile/
-tests/

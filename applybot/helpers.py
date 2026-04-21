@@ -193,7 +193,9 @@ def get_log_path():
     '''
     try:
         stamp = datetime.now().strftime("%Y%m%d")
-        path = f"{logs_folder_path}/session_{stamp}.log"
+        base = (logs_folder_path or "logs").strip() or "logs"
+        os.makedirs(base, exist_ok=True)
+        path = f"{base}/session_{stamp}.log"
         return path.replace("//", "/")
     except Exception as e:
         critical_error_log(
@@ -211,6 +213,9 @@ def print_lg(*msgs: str | dict, end: str = "\n", pretty: bool = False, flush: bo
     Function to log and print. **Note that, `end` and `flush` parameters are ignored if `pretty = True`**
     '''
     try:
+        log_parent = os.path.dirname(__logs_file_path) or "."
+        if log_parent:
+            os.makedirs(log_parent, exist_ok=True)
         for message in msgs:
             pprint(message) if pretty else print(message, end=end, flush=flush)
             with open(__logs_file_path, 'a+', encoding="utf-8") as file:
@@ -223,7 +228,7 @@ def print_lg(*msgs: str | dict, end: str = "\n", pretty: bool = False, flush: bo
         trail = f'Skipped saving this message: "{message}" to log.txt!' if from_critical else "We'll try one more time to log..."
         try:
             smart_alert(
-                f"log.txt in {logs_folder_path} is open or is occupied by another program! Please close it! {trail}",
+                f"Could not append to session log under {logs_folder_path!r} (missing folder, permissions, or file lock). {trail}",
                 "Failed Logging",
             )
         except Exception as alert_err:
@@ -431,6 +436,15 @@ def get_chrome_major_version() -> int | None:
 # Global flag for Tkinter availability
 _TKINTER_AVAILABLE = None
 
+def _headless_ui_mode() -> bool:
+    '''
+    When APPLYBOT_HEADLESS_UI=1, skip blocking GUI/console prompts so automated
+    E2E runs (subprocess, CI) can finish without human clicks on smart_alert/confirm.
+    '''
+    v = (os.environ.get("APPLYBOT_HEADLESS_UI") or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
 def is_tkinter_available() -> bool:
     global _TKINTER_AVAILABLE
     if _TKINTER_AVAILABLE is None:
@@ -450,6 +464,9 @@ def smart_alert(text: str, title: str = "Alert", button: str = "OK") -> bool:
     Shows an alert message. Tries GUI first, falls back to terminal.
     Returns True to indicate that the alert was 'acknowledged'.
     '''
+    if _headless_ui_mode():
+        print(f"\n[{title}] (APPLYBOT_HEADLESS_UI)\n{text}\n", flush=True)
+        return True
     if is_tkinter_available():
         try:
             from pyautogui import alert
@@ -472,6 +489,10 @@ def smart_confirm(text: str, title: str = "Confirm", buttons: list[str] = ["OK",
     Shows a confirmation message. Tries GUI first, falls back to terminal.
     Returns the string value of the button clicked.
     '''
+    if _headless_ui_mode():
+        choice = buttons[0] if buttons else "OK"
+        print(f"\n[{title}] (APPLYBOT_HEADLESS_UI auto: {choice})\n{text}\n", flush=True)
+        return choice
     if is_tkinter_available():
         try:
             from pyautogui import confirm
@@ -502,6 +523,9 @@ def smart_prompt(text: str, title: str = "Prompt", default: str = "") -> str:
     Shows a prompt for input. Tries GUI first, falls back to terminal.
     Returns the input string.
     '''
+    if _headless_ui_mode():
+        print(f"\n[{title}] (APPLYBOT_HEADLESS_UI default)\n{text}\n-> {default!r}\n", flush=True)
+        return default
     if is_tkinter_available():
         try:
             from pyautogui import prompt

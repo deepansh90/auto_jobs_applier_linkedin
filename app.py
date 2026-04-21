@@ -1,119 +1,71 @@
-from flask import Flask, jsonify, render_template
-from flask_cors import CORS
+"""
+Small Flask API over the applied-jobs CSV (legacy `all excels/` path or `history/`).
+
+Served from repo root; used by tests and optional local dashboards.
+"""
+
+from __future__ import annotations
+
 import csv
 from datetime import datetime
-import os
-import tempfile
+from pathlib import Path
+
+from flask import Flask, jsonify
+
+LEGACY_CSV = Path("all excels") / "all_applied_applications_history.csv"
+HISTORY_CSV = Path("history") / "applications.csv"
 
 app = Flask(__name__)
-# Restrict cross-origin callers to local dev UI by default (comma-separated origins in FLASK_CORS_ORIGINS).
-_cors_origins = [
-    o.strip()
-    for o in os.environ.get(
-        "FLASK_CORS_ORIGINS",
-        "http://127.0.0.1:5000,http://localhost:5000",
-    ).split(",")
-    if o.strip()
-]
-CORS(app, resources={r"/applied-jobs*": {"origins": _cors_origins}})
 
-PATH = 'history/'
-##> ------ Karthik Sarode : karthik.sarode23@gmail.com - UI for excel files ------
-@app.route('/')
-def home():
-    """Displays the home page of the application."""
-    return render_template('index.html')
 
-@app.route('/applied-jobs', methods=['GET'])
+def _resolved_csv_path() -> Path | None:
+    if LEGACY_CSV.is_file():
+        return LEGACY_CSV
+    if HISTORY_CSV.is_file():
+        return HISTORY_CSV
+    return None
+
+
+def _row_to_api_dict(row: dict[str, str]) -> dict[str, str]:
+    return {k.replace(" ", "_"): (v or "") for k, v in row.items()}
+
+
+@app.get("/applied-jobs")
 def get_applied_jobs():
-    '''
-    Retrieves a list of applied jobs from the applications history CSV file.
-    
-    Returns a JSON response containing a list of jobs, each with details such as 
-    Job ID, Title, Company, HR Name, HR Link, Job Link, External Job link, and Date Applied.
-    
-    If the CSV file is not found, returns a 404 error with a relevant message.
-    If any other exception occurs, returns a 500 error with the exception message.
-    '''
+    path = _resolved_csv_path()
+    if path is None:
+        return "", 404
+    with open(path, encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    return jsonify([_row_to_api_dict(r) for r in rows])
 
-    try:
-        jobs = []
-        with open(PATH + 'applications.csv', 'r', encoding='utf-8') as file:
-            reader = csv.DictReader(file)
-            for row in reader:
-                jobs.append({
-                    'Job_ID': row['Job ID'],
-                    'Title': row['Title'],
-                    'Company': row['Company'],
-                    'HR_Name': row['HR Name'],
-                    'HR_Link': row['HR Link'],
-                    'Job_Link': row['Job Link'],
-                    'External_Job_link': row['External Job link'],
-                    'Date_Applied': row['Date Applied']
-                })
-        return jsonify(jobs)
-    except FileNotFoundError:
-        return jsonify({"error": "No applications history found"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
-@app.route('/applied-jobs/<job_id>', methods=['PUT'])
-def update_applied_date(job_id):
-    """
-    Updates the 'Date Applied' field of a job in the applications history CSV file.
+@app.put("/applied-jobs/<job_id>")
+def put_applied_job(job_id: str):
+    path = _resolved_csv_path()
+    if path is None:
+        return "", 404
+    with open(path, encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+        fieldnames = list(rows[0].keys()) if rows else []
+    if not fieldnames:
+        return jsonify({"error": "empty csv"}), 400
+    found = False
+    stamp = datetime.now().isoformat(timespec="seconds")
+    for r in rows:
+        if (r.get("Job ID") or "").strip() == job_id:
+            found = True
+            if "Date Applied" in r:
+                r["Date Applied"] = stamp
+            break
+    if not found:
+        return "", 404
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        w.writerows(rows)
+    return jsonify({"status": "ok", "Job_ID": job_id})
 
-    Args:
-        job_id (str): The Job ID of the job to be updated.
 
-    Returns:
-        A JSON response with a message indicating success or failure of the update
-        operation. If the job is not found, returns a 404 error with a relevant
-        message. If any other exception occurs, returns a 500 error with the
-        exception message.
-    """
-    try:
-        data = []
-        csvPath = PATH + 'applications.csv'
-        
-        if not os.path.exists(csvPath):
-            return jsonify({"error": f"CSV file not found at {csvPath}"}), 404
-            
-        # Read current CSV content
-        with open(csvPath, 'r', encoding='utf-8') as file:
-            reader = csv.DictReader(file)
-            fieldNames = reader.fieldnames
-            found = False
-            for row in reader:
-                if row['Job ID'] == job_id:
-                    row['Date Applied'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    found = True
-                data.append(row)
-        
-        if not found:
-            return jsonify({"error": f"Job ID {job_id} not found"}), 404
-
-        csv_dir = os.path.dirname(os.path.abspath(csvPath)) or "."
-        fd, tmp_path = tempfile.mkstemp(prefix=".applied_jobs_", suffix=".csv", dir=csv_dir)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8", newline="") as file:
-                writer = csv.DictWriter(file, fieldnames=fieldNames)
-                writer.writeheader()
-                writer.writerows(data)
-            os.replace(tmp_path, csvPath)
-        except Exception:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
-
-        return jsonify({"message": "Date Applied updated successfully"}), 200
-    except Exception as e:
-        print(f"Error updating applied date: {str(e)}")  # Debug log
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == '__main__':
-    # debug=False: avoid interactive debugger exposure if the port is reachable off-machine.
-    app.run(debug=False, host="127.0.0.1", port=int(os.environ.get("PORT", "5000")))
-
-##<
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5001, debug=False)

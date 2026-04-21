@@ -1,44 +1,23 @@
-# auto_jobs_applier_linkedin
+# ApplyBot — LinkedIn Easy Apply
 
-An automated LinkedIn Easy Apply agent that handles the entire application process seamlessly.
+**Start here (new users)**
 
-## What it does
-
-- **Automated Searching** — Uses precise search URLs (`f_EA=true`) to discover Easy Apply jobs matching your criteria.
-- **Smart Form Filling** — Answers complex multi-step application questions dynamically using a Gemini/OpenAI failover dispatcher.
-- **Offline Resilience** — Safely falls back to your static configuration values if AI providers hit rate-limits or are unavailable.
-- **Persistent Sessions** — Operates on a persistent local Chrome profile to eliminate repetitive CAPTCHAs and login prompts.
-
-## Get running in 60 seconds
-
-### Path A: Setup Wizard (Recommended)
-Launch the frictionless Local UI to establish your baseline details in seconds.
 ```bash
-git clone https://github.com/deepansh90/auto_jobs_applier_linkedin.git
-cd auto_jobs_applier_linkedin
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-
-# Launch the Setup Wizard UI
-python -m applybot.setup
-
-# Start the bot
-python -m applybot
+cd linkedin_easy_auto_applier_agent
+python3 -m venv venv
+./venv/bin/python -m pip install -U pip
+./venv/bin/python -m pip install -r requirements.txt
+./venv/bin/python -m applybot.setup
 ```
 
-### Path B: Manual Configuration (Power Users)
-If you prefer raw configuration without the Setup UI, you can populate the Python settings files manually.
+Your browser should open **http://127.0.0.1:5000/** automatically. If it does not, open that address yourself, finish the form, then run:
+
 ```bash
-cp config/secrets.example.py config/secrets.py && $EDITOR config/secrets.py
-# (See docs/CONFIGURE.md for other configurations)
-python runAiBot.py
+./venv/bin/python runAiBot.py
 ```
 
-> **Note:** For advanced filtering, custom question answering, and a first-run checklist, see our comprehensive [Configuration Guide](docs/CONFIGURE.md).
+That opens Chrome/Chromium and applies using `config/` (credentials and search prefs come from the wizard). More detail, login, logs, and tests: **[docs/RUN.md](docs/RUN.md)**.
 
-## Safety and Privacy
+---
 
-- **Never commit your configuration** (`config/secrets.py`, `config/user.settings.json`, resume, etc.). They are natively ignored by git to protect you.
-- **LinkedIn Credentials are localized.** Passwords and keys exist only on your host machine.
-- **AI Analytics.** Utilizing the Gemini/OpenAI dispatcher involves sending snippets of your resume and parsed job applications out continuously.
-- **ToS Warning.** Automated interaction with LinkedIn violates their Terms of Service. Use strictly at your own discretion.
+**Heads up:** `config/secrets.py` is gitignored — do not commit it. Automating LinkedIn may violate their ToS; use at your own risk.

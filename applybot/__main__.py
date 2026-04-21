@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # Imports
 import os
+import sys
 import csv
 import re
 import time
@@ -11,8 +12,9 @@ csv.field_size_limit(1000000)  # Set to 1MB instead of default 131KB
 
 from random import choice, shuffle, randint
 from datetime import datetime
-from urllib.parse import quote_plus
-import ast
+from urllib.parse import quote_plus, urlparse
+
+from applybot.typeahead_helpers import pick_best_typeahead_index
 
 LEARNING_MODE = False  # True = collect questions only (skips submit when pause-before-submit path runs). False = normal applies.
 
@@ -20,6 +22,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support.select import Select
+from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
 from selenium.common.exceptions import NoSuchElementException, ElementClickInterceptedException, NoSuchWindowException, ElementNotInteractableException, WebDriverException, InvalidSessionIdException, StaleElementReferenceException
 
@@ -32,6 +35,15 @@ migrate_legacy_directories()
 from config.search import *
 from config.secrets import use_AI, username, password, ai_provider, llm_api_key
 from config.settings import *
+
+# Allow CI / E2E harness to cap applies without editing committed settings.
+_maj_env = (os.environ.get("MAX_APPLIED_JOBS") or "").strip()
+if _maj_env.isdigit():
+    import config.settings as _settings_cap
+
+    _cap = max(1, int(_maj_env))
+    _settings_cap.max_applied_jobs = _cap
+    max_applied_jobs = _cap
 
 # One-time resume -> profile.json autofill (new-user flow). No-op when profile.json exists.
 try:
@@ -419,13 +431,49 @@ else:
 
 
 #< Login Functions
+def _linkedin_post_login_url(url: str, drv: WebDriver | None = None) -> bool:
+    '''
+    True when the browser has left the login wall and reached a normal signed-in surface.
+    LinkedIn often lands on /jobs or /feed; waiting for /feed alone caused false timeouts.
+
+    RCA: https://www.linkedin.com/jobs/ is the *public* jobs landing (login hero) and shares
+    the /jobs host with real search URLs. Treat bare ``/jobs`` as signed-in only when the
+    global nav is present (``drv`` required); otherwise require ``/jobs/search``, ``/jobs/view``, etc.
+    '''
+    low = (url or "").lower()
+    if "linkedin.com/login" in low or "linkedin.com/uas/login" in low:
+        return False
+    if "linkedin.com/checkpoint/lg/login-submit" in low:
+        return False
+    if "linkedin.com/feed" in low or "linkedin.com/mynetwork" in low:
+        return True
+    if "linkedin.com/jobs" in low:
+        try:
+            path = (urlparse(url).path or "").rstrip("/")
+        except Exception:
+            path = "/jobs"
+        if path == "/jobs":
+            if drv is not None and try_find_by_classes(drv, ["global-nav", "nav-container"]):
+                return True
+            return False
+        return True
+    try:
+        path = urlparse(url).path or ""
+        if path.startswith("/in/") and "/login" not in low:
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def is_logged_in_LN() -> bool:
     '''
     Function to check if user is logged-in in LinkedIn
     * Returns: `True` if user is logged-in or `False` if not
     '''
-    # Check if we are on the feed or if the global navigation (nav-bar) is present
-    if "linkedin.com/feed" in driver.current_url: return True
+    # Check if we are on the feed, jobs, or if the global navigation (nav-bar) is present
+    if _linkedin_post_login_url(driver.current_url, driver):
+        return True
     if "linkedin.com/checkpoint/lg/login-submit" in driver.current_url: return False
     
     # Check for nav bar
@@ -433,7 +481,8 @@ def is_logged_in_LN() -> bool:
     if nav: return True
     
     if try_linkText(driver, "Sign in"): return False
-    if try_xp(driver, '//button[@type="submit" and contains(text(), "Sign in")]'):  return False
+    if try_xp(driver, '//button[@type="submit" and contains(text(), "Sign in")]', click=False):
+        return False
     if try_linkText(driver, "Join now"): return False
     
     # Final check: if we see the search bar, we're likely logged in
@@ -441,7 +490,287 @@ def is_logged_in_LN() -> bool:
     if search_bar: return True
     
     print_lg("Didn't find Sign in link or Nav bar, assuming login state based on URL...")
-    return "linkedin.com/feed" in driver.current_url or "linkedin.com/jobs" in driver.current_url
+    return _linkedin_post_login_url(driver.current_url, driver)
+
+
+def _linkedin_input_typ(inp: WebElement) -> str:
+    return (inp.get_attribute("type") or "text").lower()
+
+
+def _linkedin_is_login_identifier_candidate(inp: WebElement) -> bool:
+    """Skip global nav search, hidden controls, etc."""
+    try:
+        if not inp.is_displayed() or not inp.is_enabled():
+            return False
+    except Exception:
+        return False
+    typ = _linkedin_input_typ(inp)
+    if typ in ("hidden", "submit", "button", "checkbox", "radio", "image", "file", "search"):
+        return False
+    if typ not in ("text", "email", "tel"):
+        return False
+    blob = " ".join(
+        [
+            (inp.get_attribute("name") or ""),
+            (inp.get_attribute("id") or ""),
+            (inp.get_attribute("class") or ""),
+            (inp.get_attribute("aria-label") or ""),
+            (inp.get_attribute("placeholder") or ""),
+        ]
+    ).lower()
+    if any(x in blob for x in ("search", "typeahead", "jobs-search", "global-nav")):
+        return False
+    return True
+
+
+def _linkedin_resolve_identifier_and_password_fields(drv: WebDriver) -> tuple[WebElement | None, WebElement | None]:
+    """
+    Pair the email/phone field with the password field.
+
+    1) Prefer inputs inside the same <form> (classic LinkedIn).
+    2) Fallback: document-order scan — the current /login UI is often a card with no <form>
+       or nested markup where form-scoped queries return nothing.
+    """
+    for form in drv.find_elements(By.TAG_NAME, "form"):
+        inputs = form.find_elements(By.CSS_SELECTOR, "input")
+        text_before_pw: list[WebElement] = []
+        password_el: WebElement | None = None
+        for inp in inputs:
+            try:
+                if not inp.is_displayed() or not inp.is_enabled():
+                    continue
+            except Exception:
+                continue
+            typ = _linkedin_input_typ(inp)
+            if typ == "password":
+                password_el = inp
+                break
+            if typ in ("text", "email", "tel"):
+                text_before_pw.append(inp)
+        if password_el is None:
+            continue
+        identifier_el = text_before_pw[0] if text_before_pw else None
+        if identifier_el is None:
+            for inp in inputs:
+                try:
+                    if inp == password_el or not inp.is_displayed() or not inp.is_enabled():
+                        continue
+                except Exception:
+                    continue
+                typ = _linkedin_input_typ(inp)
+                if typ in ("text", "email", "tel"):
+                    identifier_el = inp
+                    break
+        if identifier_el and password_el:
+            return identifier_el, password_el
+
+    # No usable <form>: build a list of login-relevant inputs in DOM order (handles flex vs DOM order).
+    ordered: list[tuple[WebElement, str]] = []
+    for inp in drv.find_elements(By.CSS_SELECTOR, "input"):
+        typ = _linkedin_input_typ(inp)
+        if typ == "password":
+            try:
+                if inp.is_displayed() and inp.is_enabled():
+                    ordered.append((inp, "pw"))
+            except Exception:
+                continue
+            continue
+        if _linkedin_is_login_identifier_candidate(inp):
+            ordered.append((inp, "id"))
+
+    for idx, (pw_el, kind) in enumerate(ordered):
+        if kind != "pw":
+            continue
+        for j in range(idx - 1, -1, -1):
+            if ordered[j][1] == "id":
+                return ordered[j][0], pw_el
+        for j in range(idx + 1, len(ordered)):
+            if ordered[j][1] == "id":
+                return ordered[j][0], pw_el
+
+    # XPath hints (localized labels / autocomplete).
+    try:
+        pw = drv.find_elements(By.CSS_SELECTOR, "input[type='password']")
+        for p in pw:
+            try:
+                if p.is_displayed() and p.is_enabled():
+                    for xp in (
+                        "//input[@autocomplete='username']",
+                        "//input[contains(@name,'session')]",
+                        "//input[contains(@aria-label,'mail') or contains(@aria-label,'hone')]",
+                        "//input[contains(@placeholder,'mail') or contains(@placeholder,'hone')]",
+                    ):
+                        for cand in drv.find_elements(By.XPATH, xp):
+                            if _linkedin_is_login_identifier_candidate(cand):
+                                return cand, p
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return None, None
+
+
+def _linkedin_login_identifier_visible(drv: WebDriver) -> bool:
+    """True when we can resolve a visible identifier field + password (same test as fill)."""
+    ident, pw = _linkedin_resolve_identifier_and_password_fields(drv)
+    return bool(ident and pw)
+
+
+def _linkedin_open_full_email_password_form() -> None:
+    '''
+    Persistent profiles often land on "Welcome back" with a remembered account card
+    and no email field. Click through to the standard identifier + password form so
+    secrets.py credentials can be filled reliably.
+    '''
+    sleep(0.6)
+    for fragment in (
+        "Sign in using another account",
+        "Sign in with another account",
+        "Use another account",
+        "another account",  # partial match last — broadest
+    ):
+        try:
+            for el in driver.find_elements(By.PARTIAL_LINK_TEXT, fragment):
+                if not el.is_displayed():
+                    continue
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
+                sleep(0.2)
+                el.click()
+                print_lg(f'Clicked "{fragment.strip()}" to leave remembered-account / Welcome back screen.')
+                sleep(2.5)
+                return
+        except Exception:
+            continue
+
+
+def _linkedin_click_sign_submit_button(drv: WebDriver) -> bool:
+    """
+    LinkedIn's primary submit is often not `element_to_be_clickable` (overlays, animation,
+    or text inside nested spans). Try many locators, then JS click, then form submit / Enter.
+    """
+    locators = [
+        (By.CSS_SELECTOR, "button[data-id='sign-in-form__submit-btn']"),
+        (By.XPATH, "//button[.//span[normalize-space(.)='Sign in']]"),
+        (By.XPATH, "//button[.//span[contains(normalize-space(.),'Sign in')]]"),
+        (By.XPATH, "//button[contains(normalize-space(.),'Sign in')]"),
+        (By.XPATH, "//button[@type='submit' and contains(.,'Sign')]"),
+        (By.XPATH, "//input[@type='submit' and contains(@value,'Sign')]"),
+        (By.XPATH, "//input[@type='submit' and contains(@value,'sign')]"),
+        (By.XPATH, "//*[@role='button' and contains(normalize-space(.),'Sign in')]"),
+        (By.XPATH, "//form[.//input[@type='password']]//button[@type='submit']"),
+        (By.CSS_SELECTOR, "form button.btn__primary--large[type='submit']"),
+        (By.CSS_SELECTOR, "main button.btn__primary--large"),
+    ]
+    for by, sel in locators:
+        try:
+            for btn in drv.find_elements(by, sel):
+                try:
+                    if not btn.is_displayed():
+                        continue
+                except Exception:
+                    continue
+                try:
+                    drv.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
+                except Exception:
+                    pass
+                sleep(0.25)
+                try:
+                    btn.click()
+                except Exception:
+                    try:
+                        drv.execute_script("arguments[0].click();", btn)
+                    except Exception:
+                        continue
+                print_lg(f"[login] clicked Sign in ({sel[:60]!r}…)")
+                return True
+        except Exception:
+            continue
+
+    try:
+        ok = drv.execute_script(
+            """
+            const pw = document.querySelector("input[type='password']");
+            if (!pw) return false;
+            const r = pw.getBoundingClientRect();
+            if (r.width < 1 || r.height < 1) return false;
+            const form = pw.closest('form');
+            if (form) {
+              const btn = form.querySelector(
+                "button[type='submit'], input[type='submit'], button.btn__primary--large"
+              );
+              if (btn && btn.getBoundingClientRect().width > 0) {
+                btn.click();
+                return true;
+              }
+              if (typeof form.requestSubmit === 'function') {
+                try { form.requestSubmit(); return true; } catch (e) {}
+              }
+            }
+            return false;
+            """
+        )
+        if ok:
+            print_lg("[login] clicked Sign in via JS (form submit / submit button near password)")
+            return True
+    except Exception:
+        pass
+
+    try:
+        for pw in drv.find_elements(By.CSS_SELECTOR, "input[type='password']"):
+            try:
+                if pw.is_displayed() and pw.is_enabled():
+                    pw.send_keys(Keys.ENTER)
+                    print_lg("[login] submitted login with Enter on password field")
+                    return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return False
+
+
+def _linkedin_dismiss_blocking_layers(drv: WebDriver) -> None:
+    """
+    Public /jobs and /login often show a top strip (cookies, 'Agree & Join', etc.) that
+    intercepts clicks so email/password never receive keystrokes.
+    """
+    selectors = [
+        (By.PARTIAL_LINK_TEXT, "Agree & Join"),
+        (By.PARTIAL_LINK_TEXT, "Continue to join"),
+        (By.PARTIAL_LINK_TEXT, "Accept cookies"),
+        (By.PARTIAL_LINK_TEXT, "Accept"),
+        (By.XPATH, "//button[contains(.,'Accept')]"),
+        (By.XPATH, "//button[contains(.,'Agree')]"),
+        (By.CSS_SELECTOR, "[aria-label='Dismiss']"),
+        (By.CSS_SELECTOR, "button.artdeco-global-alert__action"),
+    ]
+    for by, sel in selectors:
+        try:
+            for el in drv.find_elements(by, sel):
+                try:
+                    if not el.is_displayed() or not el.is_enabled():
+                        continue
+                except Exception:
+                    continue
+                try:
+                    drv.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+                except Exception:
+                    pass
+                sleep(0.12)
+                try:
+                    el.click()
+                except Exception:
+                    try:
+                        drv.execute_script("arguments[0].click();", el)
+                    except Exception:
+                        continue
+                print_lg(f"[login] dismissed blocking layer ({str(sel)[:48]}…)")
+                sleep(0.5)
+        except Exception:
+            continue
 
 
 def login_LN() -> None:
@@ -451,72 +780,98 @@ def login_LN() -> None:
     * If failed, tries to login using saved LinkedIn profile button if available
     * If both failed, asks user to login manually
     '''
-    # Find the username and password fields and fill them with user credentials
-    driver.get("https://www.linkedin.com/login")
+    # Find the username and password fields and fill them with user credentials.
+    # Guest marketing page https://www.linkedin.com/jobs/ already shows the form — skip /login redirect.
+    if not _linkedin_login_identifier_visible(driver):
+        driver.get("https://www.linkedin.com/login")
+    _linkedin_open_full_email_password_form()
+    sleep(1.0)
+    _linkedin_dismiss_blocking_layers(driver)
     if username == "username@example.com" and password == "example_password":
         smart_alert("User did not configure username and password in secrets.py, hence can't login automatically! Please login manually!", "Login Manually","Okay")
         print_lg("User did not configure username and password in secrets.py, hence can't login automatically! Please login manually!")
         manual_login_retry(is_logged_in_LN, 2)
         return
     try:
-        wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Forgot password?")))
+        # Wait for a driveable email/password path (legacy IDs, <form>, or card without <form>).
+        WebDriverWait(driver, 40).until(_linkedin_login_identifier_visible)
+        _linkedin_dismiss_blocking_layers(driver)
+        select_all = Keys.COMMAND + "a" if sys.platform == "darwin" else Keys.CONTROL + "a"
+        ident_el, pass_el = _linkedin_resolve_identifier_and_password_fields(driver)
         try:
-            try:
-                text_input_by_ID(driver, "username", username, 2)
-            except Exception:
+            if ident_el and pass_el:
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", ident_el)
+                sleep(0.2)
+                ident_el.click()
+                ident_el.send_keys(select_all)
+                ident_el.send_keys(username)
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", pass_el)
+                sleep(0.2)
+                pass_el.click()
+                pass_el.send_keys(select_all)
+                pass_el.send_keys(password)
+            else:
                 try:
-                    text_input_by_ID(driver, "session_key", username, 2)
+                    text_input_by_ID(driver, "username", username, 2)
                 except Exception:
-                    # Fallback for dynamically generated React IDs (e.g., :r3:)
-                    sleep(2)
-                    inputs = driver.find_elements(By.XPATH, "//input[@type='text']")
-                    for inp in inputs:
-                        if inp.is_displayed() and inp.is_enabled():
-                            inp.clear()
-                            inp.send_keys(username)
-                            break
-        except Exception as e:
-            print_lg("Couldn't find username field, dynamic IDs might be blocking it.")
-        
-        try:
-            try:
-                text_input_by_ID(driver, "password", password, 2)
-            except Exception:
+                    try:
+                        text_input_by_ID(driver, "session_key", username, 2)
+                    except Exception:
+                        sleep(1)
+                        inputs = driver.find_elements(
+                            By.XPATH,
+                            '//input[@type="text" or @type="email"]',
+                        )
+                        for inp in inputs:
+                            if inp.is_displayed() and inp.is_enabled():
+                                inp.clear()
+                                inp.send_keys(username)
+                                break
                 try:
-                    text_input_by_ID(driver, "session_password", password, 2)
-                except:
-                    sleep(1)
-                    inputs = driver.find_elements(By.XPATH, "//input[@type='password']")
-                    for inp in inputs:
-                        if inp.is_displayed() and inp.is_enabled():
-                            inp.clear()
-                            inp.send_keys(password)
-                            break
-        except Exception as e:
-            print_lg("Couldn't find password field.")
-        # Find the login submit button and click it
-        buttons = driver.find_elements(By.XPATH, '//button[.//span[normalize-space(.)="Sign in"]] | //button[normalize-space(.)="Sign in"]')
-        for btn in buttons:
-            if btn.is_displayed() and btn.is_enabled():
-                btn.click()
-                break
+                    text_input_by_ID(driver, "password", password, 2)
+                except Exception:
+                    try:
+                        text_input_by_ID(driver, "session_password", password, 2)
+                    except Exception:
+                        sleep(1)
+                        inputs = driver.find_elements(By.XPATH, "//input[@type='password']")
+                        for inp in inputs:
+                            if inp.is_displayed() and inp.is_enabled():
+                                inp.clear()
+                                inp.send_keys(password)
+                                break
+        except Exception:
+            print_lg("Couldn't fill username/password (LinkedIn DOM may have changed again).")
+        sleep(0.4)
+        if not _linkedin_click_sign_submit_button(driver):
+            print_lg("Could not find a clickable Sign in button; complete login manually if needed.")
     except Exception as e1:
         try:
             profile_button = find_by_class(driver, "profile__details")
             profile_button.click()
-        except Exception as e2:
-            # print_lg(e1, e2)
-            print_lg("Couldn't Login!")
+        except Exception:
+            print_lg(
+                "Login form did not appear as expected (LinkedIn UI change or already on a checkpoint). "
+                "If credentials are in config/secrets.py, complete the browser window manually; the wait below still applies."
+            )
 
     try:
         # Wait up to 3 minutes for successful redirect — long enough for OTP / 2FA / device verify.
         # We watch the URL rather than prompt so the user can finish the challenge in the open browser.
-        print_lg("Waiting for login to complete (enter OTP / solve any challenge in the browser; up to 3 min)...")
+        print_lg(
+            "Waiting for login to complete (OTP / CAPTCHA / device prompts: use the browser window; "
+            "Google 'Continue as' cannot be filled by the bot—use email+password or finish manually). "
+            "Up to 3 min..."
+        )
         long_wait = WebDriverWait(driver, 180)
-        long_wait.until(lambda d: "linkedin.com/feed" in d.current_url or "linkedin.com/mynetwork" in d.current_url)
+        long_wait.until(lambda d: _linkedin_post_login_url(d.current_url, d))
         return print_lg("Login successful!")
-    except Exception as e:
-        print_lg("Seems like login attempt failed! Possibly due to wrong credentials or already logged in! Try logging in manually!")
+    except Exception:
+        print_lg(
+            "Login did not reach a logged-in URL within 3 min (OTP, CAPTCHA, wrong credentials, or LinkedIn UI change). "
+            "Credentials come from config/secrets.py loaded at process start—restart runAiBot.py after editing secrets. "
+            "Complete login in the browser if prompted."
+        )
         # print_lg(e)
         manual_login_retry(is_logged_in_LN, 2)
 #>
@@ -1042,7 +1397,76 @@ def get_job_description(
         
 
 
-def commit_typeahead_choice(text_input: WebElement, typed_value: str, label_org: str) -> None:
+def _easy_apply_location_text_answer(work_location: str) -> str:
+    '''
+    Prefer a full "City, State, Country" line from job-search config when set,
+    so the Easy Apply typeahead matches LinkedIn\'s first suggestion (e.g.
+    "Noida, Uttar Pradesh, India") instead of stopping on "Noida" and missing
+    the dropdown commit.
+    '''
+    sl = (search_location or "").strip()
+    cc = (current_city or "").strip()
+    wl = (work_location or "").strip()
+    if sl and "," in sl:
+        return sl
+    if cc:
+        return cc
+    return wl or cc
+
+
+def _collect_visible_typeahead_options(driver, modal: WebElement | None) -> list[WebElement]:
+    '''
+    Options may render inside the modal, in an artdeco popover, or in a
+    partner (e.g. PyjamaHR) subtree — try modal-scoped XPaths first, then
+    Easy-Apply–scoped global XPaths so we don\'t grab the jobs search bar list.
+    '''
+    seen: set[int] = set()
+    out: list[WebElement] = []
+
+    def add_from(root: WebDriver | WebElement, xps: list[str], relative: bool) -> None:
+        for xp in xps:
+            try:
+                els = root.find_elements(By.XPATH, xp if relative else xp)
+                for el in els:
+                    try:
+                        if not el.is_displayed():
+                            continue
+                    except Exception:
+                        continue
+                    eid = id(el)
+                    if eid in seen:
+                        continue
+                    seen.add(eid)
+                    out.append(el)
+            except Exception:
+                continue
+
+    modal_xps = [
+        ".//*[@role='listbox']//*[@role='option']",
+        ".//li[@role='option']",
+        ".//div[@role='option']",
+    ]
+    global_xps = [
+        "//div[contains(@class,'jobs-easy-apply-modal')]//*[@role='listbox']//*[@role='option']",
+        "//div[contains(@class,'jobs-easy-apply-modal')]//li[@role='option']",
+        "//div[contains(@class,'jobs-easy-apply-content')]//*[@role='listbox']//*[@role='option']",
+        "//*[contains(@class,'artdeco-typeahead')]//*[@role='option']",
+        "//div[contains(@class,'basic-typeahead')]//li[@role='option']",
+        "//ul[@role='listbox']//li[@role='option']",
+        "//*[@role='listbox']//*[@role='option']",
+    ]
+    if modal is not None:
+        add_from(modal, modal_xps, True)
+    add_from(driver, global_xps, False)
+    return out
+
+
+def commit_typeahead_choice(
+    modal: WebElement | None,
+    text_input: WebElement,
+    typed_value: str,
+    label_org: str,
+) -> None:
     '''
     Commit a value into a LinkedIn typeahead/autocomplete input (e.g. the
     "Location (city)" field that shows "Noida" -> dropdown with "Noida,
@@ -1061,41 +1485,30 @@ def commit_typeahead_choice(text_input: WebElement, typed_value: str, label_org:
         fixed `sleep()` is not reliable.
 
     Strategy (in order; first one that commits wins):
-      1. Poll up to ~4s for option elements to appear in the DOM.
-      2. Prefer an option whose text starts with the typed prefix
-         (case-insensitive); otherwise click the first option.
-      3. Click the option directly (browser dispatches mousedown/click
-         which is what these widgets listen for).
+      1. Poll up to ~6s for option elements (modal-scoped, then Easy Apply
+         global) so we don\'t steal the jobs search-bar suggestions.
+      2. Rank options (prefer "Noida, Uttar Pradesh" over "Greater Noida").
+      3. Click the best option directly.
       4. Fallback: keyboard ArrowDown + Enter on the input itself.
-      5. Verify the input's `value` is now non-empty and reflects a
-         committed choice; log a warning if not.
+      5. Verify the input value; warn if unchanged.
     '''
-    option_xps = [
-        # Most common: aria-role listbox options
-        "//div[contains(@class,'basic-typeahead')]//li[@role='option']",
-        "//ul[@role='listbox']//li[@role='option']",
-        "//*[@role='listbox']//*[@role='option']",
-        # Fallback for older DOMs
-        "//div[contains(@class,'basic-typeahead__triggered-content')]//div[@role='option']",
-    ]
-
-    deadline = time.time() + 4.0
+    deadline = time.time() + 6.0
     options: list[WebElement] = []
     while time.time() < deadline and not options:
-        for xp in option_xps:
-            try:
-                found = driver.find_elements(By.XPATH, xp)
-                # Only visible options count.
-                found = [o for o in found if o.is_displayed()]
-                if found:
-                    options = found
-                    break
-            except Exception:
-                continue
+        options = _collect_visible_typeahead_options(driver, modal)
         if not options:
-            sleep(0.25)
+            sleep(0.2)
 
-    chosen: WebElement | None = options[0] if options else None
+    chosen: WebElement | None = None
+    if options:
+        texts: list[str] = []
+        for o in options:
+            try:
+                texts.append((o.text or "").strip())
+            except Exception:
+                texts.append("")
+        best_i = pick_best_typeahead_index(typed_value, texts)
+        chosen = options[best_i]
 
     if chosen is not None:
         try:
@@ -1145,9 +1558,14 @@ def get_active_modal(timeout: float = 5.0) -> WebElement:
     the moment you touch it. Call this at the top of every iteration instead
     of caching.
     '''
-    return WebDriverWait(driver, timeout).until(
-        EC.visibility_of_element_located((By.CLASS_NAME, "jobs-easy-apply-modal"))
-    )
+    try:
+        return WebDriverWait(driver, timeout).until(
+            EC.visibility_of_element_located((By.CSS_SELECTOR, ".jobs-easy-apply-modal, .artdeco-modal"))
+        )
+    except Exception:
+        return WebDriverWait(driver, timeout).until(
+            EC.visibility_of_element_located((By.XPATH, "//div[contains(@class, 'modal')]//button[contains(@aria-label, 'Dismiss')]/../.."))
+        )
 
 
 def _find_next_or_review_or_submit(modal: WebElement) -> WebElement:
@@ -1192,6 +1610,8 @@ def _click_submit_easy_apply_final() -> bool:
         './/button[normalize-space(.)="Submit"]',
         './/button[.//span[normalize-space(.)="Submit"]]',
         './/button[@aria-label="Submit"]',
+        './/button[contains(normalize-space(.), "Post")]',
+        './/button[contains(normalize-space(.), "Submit")]',
     ]
     for xp in xps:
         try:
@@ -1209,7 +1629,24 @@ def _click_submit_easy_apply_final() -> bool:
             continue
         except Exception:
             continue
-    return bool(wait_span_click(driver, "Submit application", 2, scrollTop=True)) or bool(wait_span_click(driver, "Submit", 2, scrollTop=True))
+    
+    # FINAL CATCH-ALL: Search all buttons in modal for any matching keyword
+    try:
+        btns = modal.find_elements(By.TAG_NAME, "button")
+        for b in btns:
+            txt = (b.text or b.get_attribute("aria-label") or "").lower()
+            if any(k in txt for k in ["submit", "post", "done"]):
+                if b.is_displayed():
+                    scroll_to_view(driver, b, True)
+                    driver.execute_script("arguments[0].click();", b)
+                    print_lg(f"[INFO] Clicked fallback submit button: {txt}")
+                    return True
+    except Exception:
+        pass
+        
+    print_lg("Click Failed! Didn't find 'Submit application'")
+    screenshot(driver, "SUBMIT_FAILURE", "Failed to find submit button")
+    return False
 
 
 def _reinit_browser_with_retry(max_attempts: int = 3, pause_s: float = 5.0) -> tuple:
@@ -1364,9 +1801,9 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                     elif 'state' in label:
                         answer = state
                     elif 'city' in label:
-                        answer = current_city if current_city else work_location
+                        answer = _easy_apply_location_text_answer(work_location)
                     else:
-                        answer = work_location
+                        answer = _easy_apply_location_text_answer(work_location)
                 else: 
                     custom_answer = get_custom_answer(label)
                     if custom_answer:
@@ -1493,7 +1930,7 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 elif 'phone' in label or 'mobile' in label: answer = phone_number
                 elif 'street' in label: answer = street
                 elif 'city' in label or 'location' in label or 'address' in label:
-                    answer = current_city if current_city else work_location
+                    answer = _easy_apply_location_text_answer(work_location)
                     do_actions = True
                 elif 'signature' in label: answer = full_name # 'signature' in label or 'legal name' in label or 'your name' in label or 'full name' in label: answer = full_name     # What if question is 'name of the city or university you attend, name of referral etc?'
                 elif 'name' in label:
@@ -1546,13 +1983,14 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 text.clear()
                 text.send_keys(str(answer))
                 if do_actions:
-                    commit_typeahead_choice(text, str(answer), label_org)
+                    commit_typeahead_choice(modal, text, str(answer), label_org)
             questions_list.add((label, text.get_attribute("value"), "text", prev_answer))
             continue
 
         # Check if it's a textarea question
         text_area = try_xp(Question, ".//textarea", False)
         if text_area:
+            do_actions = False
             label = try_xp(Question, ".//label[@for]", False)
             label_org = label.text if label else "Unknown"
             label = label_org.lower()
@@ -1591,10 +2029,18 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
         checkbox = try_xp(Question, ".//input[@type='checkbox']", False)
         if checkbox:
             # Do not auto-toggle here — the generic branch always CHECKS unchecked boxes,
-            # which would force "Follow company" ON even when follow_companies=False.
-            # follow_company() runs once before submit with the correct intent.
+            # which would force "Follow company" ON. LinkedIn / partner UIs must only be
+            # toggled in follow_company() so we always leave "Follow … stay up to date" OFF.
             cb_id = (checkbox.get_attribute("id") or "").strip()
-            if cb_id == "follow-company-checkbox":
+            try:
+                qtext = (Question.get_attribute("innerText") or "").lower()
+            except Exception:
+                qtext = ""
+            if (
+                cb_id == "follow-company-checkbox"
+                or "follow-company" in cb_id.lower()
+                or ("follow" in qtext and "stay up" in qtext)
+            ):
                 continue
             label = try_xp(Question, ".//span[@class='visually-hidden']", False)
             label_org = label.text if label else "Unknown"
@@ -1613,6 +2059,12 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
             questions_list.add((f'{label} ([X] {answer})', checked, "checkbox", prev_answer))
             continue
 
+
+    # LinkedIn / PyjamaHR often default this ON on the review step — force OFF every page.
+    try:
+        follow_company(modal)
+    except Exception as _fc_err:
+        dbg(f"follow_company mid-form: {_fc_err}")
 
     # Select todays date
     try_xp(driver, "//button[contains(@aria-label, 'This is today')]")
@@ -1660,17 +2112,34 @@ def external_apply(pagination_element: WebElement, job_id: str, job_link: str, r
 
 def follow_company(modal: WebElement | None = None) -> None:
     '''
-    Set the Easy Apply "Follow company" checkbox to match `follow_companies` in config.
-    Uses a fresh modal reference; retries once if the toggle does not stick.
-    '''
-    try:
-        root = get_active_modal(5)
-    except Exception:
-        root = modal if modal is not None else driver
-    label_xp = ".//label[@for='follow-company-checkbox']"
-    input_xp = ".//input[@id='follow-company-checkbox' and @type='checkbox']"
+    Always uncheck the Easy Apply "Follow <company> … stay up to date" box.
 
-    def _selected(el) -> bool:
+    LinkedIn and third-party flows (e.g. PyjamaHR) may use different ids; we
+    probe several XPaths and re-read the modal each attempt because the DOM
+    is rebuilt between steps.
+    '''
+    want = False
+    print_lg("[DEBUG] Ensuring 'Follow company' checkbox stays OFF (policy: never follow from Easy Apply).")
+
+    label_xps = [
+        ".//label[contains(@for, 'follow-company-checkbox')]",
+        ".//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'follow') and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'stay up')]",
+    ]
+    input_xps = [
+        ".//input[@id='follow-company-checkbox']",
+        ".//input[contains(@id,'follow-company') or contains(@name,'follow-company')]",
+        ".//label[contains(.,'Follow') and contains(.,'stay up')]/preceding-sibling::input[@type='checkbox']",
+        ".//label[contains(.,'Follow') and contains(.,'stay up')]/following-sibling::input[@type='checkbox']",
+        ".//label[contains(.,'Follow') and contains(.,'stay up')]/../input[@type='checkbox']",
+        ".//input[@type='checkbox' and (contains(@aria-label,'Follow') or contains(@aria-label,'follow'))]",
+    ]
+    fallback_cb_xp = (
+        ".//input[@type='checkbox' and ("
+        "contains(..//span, 'Follow') or contains(..//label, 'Follow') or contains(@aria-label, 'Follow')"
+        ")]"
+    )
+
+    def _selected(el: WebElement) -> bool:
         try:
             if el.get_attribute("aria-checked") is not None:
                 return (el.get_attribute("aria-checked") or "").lower() == "true"
@@ -1681,38 +2150,53 @@ def follow_company(modal: WebElement | None = None) -> None:
         except Exception:
             return False
 
-    for attempt in range(2):
+    def _find_checkbox(root: WebElement) -> WebElement | None:
+        for xp in input_xps:
+            cb = try_xp(root, xp, False)
+            if cb:
+                return cb
+        return try_xp(root, fallback_cb_xp, False)
+
+    for attempt in range(4):
         try:
-            follow_checkbox_input = try_xp(root, input_xp, False)
-            if not follow_checkbox_input:
-                return
-            want = follow_companies
-            if _selected(follow_checkbox_input) == want:
-                return
-            lbl = try_xp(root, label_xp, False)
-            if lbl:
-                scroll_to_view(driver, lbl, True)
-                try:
-                    lbl.click()
-                except Exception:
-                    driver.execute_script("arguments[0].click();", lbl)
-            else:
-                scroll_to_view(driver, follow_checkbox_input, True)
-                try:
-                    follow_checkbox_input.click()
-                except Exception:
-                    driver.execute_script("arguments[0].click();", follow_checkbox_input)
-            buffer(click_gap)
-            follow_checkbox_input = try_xp(root, input_xp, False)
-            if follow_checkbox_input and _selected(follow_checkbox_input) == want:
-                return
             try:
-                root = get_active_modal(3)
+                root = get_active_modal(4)
             except Exception:
-                pass
+                root = modal if modal is not None else driver
+
+            cb = _find_checkbox(root)
+            if not cb:
+                dbg("Follow checkbox not found on this screen.")
+                return
+
+            if _selected(cb) == want:
+                dbg("Follow company already unchecked.")
+                return
+
+            lbl = None
+            for lxp in label_xps:
+                lbl = try_xp(root, lxp, False)
+                if lbl:
+                    break
+            try:
+                scroll_to_view(driver, cb)
+                if lbl:
+                    driver.execute_script("arguments[0].click();", lbl)
+                else:
+                    driver.execute_script("arguments[0].click();", cb)
+            except Exception:
+                try:
+                    driver.execute_script("arguments[0].click();", cb)
+                except Exception:
+                    pass
+
+            buffer(click_gap)
+            if _selected(cb) == want:
+                print_lg("[INFO] 'Follow company' left unchecked as required.")
+                return
         except Exception as e:
-            print_lg("Failed to update follow companies checkbox!", e)
-            return
+            dbg(f"Follow company toggle attempt {attempt} failed: {e}")
+    print_lg("[WARNING] Could not verify 'Follow company' unchecked; please check before submit.")
     
 
 
@@ -2066,7 +2550,11 @@ def run_applications(search_terms: list[str]) -> None:
                                     if decision == "Discard Application": raise Exception("Job application discarded by user!")
                                     pause_before_submit = False if "Disable Pause" == decision else True
                                     # try_xp(modal, ".//span[normalize-space(.)='Review']")
-                                if modal and follow_company(modal): pass
+                                try:
+                                    modal = get_active_modal(5)
+                                except Exception:
+                                    modal = None
+                                follow_company(modal)
                                 if _click_submit_easy_apply_final():
                                     date_applied = datetime.now()
                                     if not wait_span_click(driver, "Done", 2, silent=True):
@@ -2172,9 +2660,9 @@ def run(total_runs: int) -> int:
     run_applications(search_terms)
     print_lg("########################################################################################################################\n")
     if not dailyEasyApplyLimitReached:
-        print_lg("Sleeping for 10 min...")
+        print_lg("Sleeping for 5 min...")
         sleep(300)
-        print_lg("Few more min... Gonna start with in next 5 min...")
+        print_lg("Few more min... Starting in next 5 min...")
         sleep(300)
     buffer(3)
     return total_runs + 1
@@ -2234,7 +2722,19 @@ def main() -> None:
             if cycle_date_posted:
                 date_options = ["Any time", "Past month", "Past week", "Past 24 hours"]
                 global date_posted
-                date_posted = date_options[date_options.index(date_posted)+1 if date_options.index(date_posted)+1 > len(date_options) else -1] if stop_date_cycle_at_24hr else date_options[0 if date_options.index(date_posted)+1 >= len(date_options) else date_options.index(date_posted)+1]
+                
+                # Standardize current date_posted to a valid option
+                if date_posted not in date_options:
+                    date_posted = "Any time"
+                
+                current_idx = date_options.index(date_posted)
+                next_idx = (current_idx + 1) % len(date_options)
+                
+                # If we want to stop at 24h instead of looping
+                if stop_date_cycle_at_24hr and current_idx == len(date_options) - 1:
+                    next_idx = current_idx
+                
+                date_posted = date_options[next_idx]
             if alternate_sortby:
                 global sort_by
                 sort_by = "Most recent" if sort_by == "Most relevant" else "Most relevant"

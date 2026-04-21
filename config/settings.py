@@ -43,10 +43,11 @@ use_chromium = False               # True or False, Note: True or False are case
 # Full path to the Chromium binary; leave "" to auto-detect (e.g. /Applications/Chromium.app/Contents/MacOS/Chromium).
 chromium_binary_path = ""          # Example: "/Applications/Chromium.app/Contents/MacOS/Chromium"
 
-# Do you want to follow the companies you apply to?
+# Legacy setting: Easy Apply always leaves LinkedIn's "Follow … stay up to date" box
+# unchecked regardless of this flag (automation policy). Kept for config compatibility.
 follow_companies = False           # True or False, Note: True or False are case-sensitive
 
-max_applied_jobs = 10               # Maximum Easy Apply submissions per run (see logs/ and logs/screenshots/)
+max_applied_jobs = 3               # Maximum Easy Apply submissions per run (see logs/ and logs/screenshots/)
 randomize_wait_times = True        # Enable human-like randomized delays between actions
 
 # Pause after search for manual review
