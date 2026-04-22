@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    importlib.util.find_spec("config.secrets") is None,
+    reason="config/secrets.py missing (e.g. CI clone); tests patch that module.",
+)
 
 from applybot.validator import validate_secrets
 

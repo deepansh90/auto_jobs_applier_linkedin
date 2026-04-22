@@ -30,110 +30,109 @@ def check_list(var: list, var_name: str, options: list=[], min_length: int=0) ->
 
 
 
-from config.personals import *
 def validate_personals() -> None | ValueError | TypeError:
     '''
     Validates all variables in the `/config/personals.py` file.
     '''
     global __validation_file_path
     __validation_file_path = "config/personals.py"
+    from config import personals as p
 
-    check_string(first_name, "first_name", min_length=1)
-    check_string(middle_name, "middle_name")
-    check_string(last_name, "last_name", min_length=1)
+    check_string(p.first_name, "first_name", min_length=1)
+    check_string(p.middle_name, "middle_name")
+    check_string(p.last_name, "last_name", min_length=1)
 
-    check_string(phone_number, "phone_number", min_length=10)
+    check_string(p.phone_number, "phone_number", min_length=10)
 
-    check_string(current_city, "current_city")
-    
-    check_string(street, "street")
-    check_string(state, "state")
-    check_string(zipcode, "zipcode")
-    check_string(country, "country")
-    
-    check_string(ethnicity, "ethnicity", ["Decline", "Hispanic/Latino", "American Indian or Alaska Native", "Asian", "Black or African American", "Native Hawaiian or Other Pacific Islander", "White", "Other"],  min_length=0)
-    check_string(gender, "gender", ["Male", "Female", "Other", "Decline", ""])
-    check_string(disability_status, "disability_status", ["Yes", "No", "Decline"])
-    check_string(veteran_status, "veteran_status", ["Yes", "No", "Decline"])
+    check_string(p.current_city, "current_city")
+
+    check_string(p.street, "street")
+    check_string(p.state, "state")
+    check_string(p.zipcode, "zipcode")
+    check_string(p.country, "country")
+
+    check_string(p.ethnicity, "ethnicity", ["Decline", "Hispanic/Latino", "American Indian or Alaska Native", "Asian", "Black or African American", "Native Hawaiian or Other Pacific Islander", "White", "Other"],  min_length=0)
+    check_string(p.gender, "gender", ["Male", "Female", "Other", "Decline", ""])
+    check_string(p.disability_status, "disability_status", ["Yes", "No", "Decline"])
+    check_string(p.veteran_status, "veteran_status", ["Yes", "No", "Decline"])
 
 
-
-from config.questions import *
 def validate_questions() -> None | ValueError | TypeError:
     '''
     Validates all variables in the `/config/questions.py` file.
     '''
     global __validation_file_path
     __validation_file_path = "config/questions.py"
+    from config import questions as q
 
-    check_string(default_resume_path, "default_resume_path")
-    check_string(years_of_experience, "years_of_experience")
-    check_string(require_visa, "require_visa", ["Yes", "No"])
-    check_string(website, "website")
-    check_string(linkedIn, "linkedIn")
-    check_int(desired_salary, "desired_salary")
-    check_string(us_citizenship, "us_citizenship", ["U.S. Citizen/Permanent Resident", "Non-citizen allowed to work for any employer", "Non-citizen allowed to work for current employer", "Non-citizen seeking work authorization", "Canadian Citizen/Permanent Resident", "Other"])
-    check_string(linkedin_headline, "linkedin_headline")
-    check_int(notice_period, "notice_period")
-    check_int(current_ctc, "current_ctc")
-    check_string(linkedin_summary, "linkedin_summary")
-    check_string(cover_letter, "cover_letter")
-    check_string(recent_employer, "recent_employer")
-    check_string(confidence_level, "confidence_level")
+    check_string(q.default_resume_path, "default_resume_path")
+    check_string(q.years_of_experience, "years_of_experience")
+    check_string(q.require_visa, "require_visa", ["Yes", "No"])
+    check_string(q.website, "website")
+    check_string(q.linkedIn, "linkedIn")
+    check_int(q.desired_salary, "desired_salary")
+    check_string(q.us_citizenship, "us_citizenship", ["U.S. Citizen/Permanent Resident", "Non-citizen allowed to work for any employer", "Non-citizen allowed to work for current employer", "Non-citizen seeking work authorization", "Canadian Citizen/Permanent Resident", "Other"])
+    check_string(q.linkedin_headline, "linkedin_headline")
+    check_int(q.notice_period, "notice_period")
+    check_int(q.current_ctc, "current_ctc")
+    check_string(q.linkedin_summary, "linkedin_summary")
+    check_string(q.cover_letter, "cover_letter")
+    check_string(q.recent_employer, "recent_employer")
+    check_string(q.confidence_level, "confidence_level")
 
-    check_boolean(pause_before_submit, "pause_before_submit")
-    check_boolean(pause_at_failed_question, "pause_at_failed_question")
-    check_boolean(overwrite_previous_answers, "overwrite_previous_answers")
+    check_boolean(q.pause_before_submit, "pause_before_submit")
+    check_boolean(q.pause_at_failed_question, "pause_at_failed_question")
+    check_boolean(q.overwrite_previous_answers, "overwrite_previous_answers")
 
 
-from config.search import *
 def validate_search() -> None | ValueError | TypeError:
     '''
     Validates all variables in the `/config/search.py` file.
     '''
     global __validation_file_path
     __validation_file_path = "config/search.py"
+    from config import search as s
 
-    check_list(search_terms, "search_terms", min_length=1)
-    check_string(search_location, "search_location")
-    check_int(switch_number, "switch_number", 1)
-    check_boolean(randomize_search_order, "randomize_search_order")
+    check_list(s.search_terms, "search_terms", min_length=1)
+    check_string(s.search_location, "search_location")
+    check_int(s.switch_number, "switch_number", 1)
+    check_boolean(s.randomize_search_order, "randomize_search_order")
 
-    check_string(sort_by, "sort_by", ["", "Most recent", "Most relevant"])
-    check_string(date_posted, "date_posted", ["", "Any time", "Past month", "Past week", "Past 24 hours"])
-    check_string(salary, "salary")
+    check_string(s.sort_by, "sort_by", ["", "Most recent", "Most relevant"])
+    check_string(s.date_posted, "date_posted", ["", "Any time", "Past month", "Past week", "Past 24 hours"])
+    check_string(s.salary, "salary")
 
-    check_boolean(easy_apply_only, "easy_apply_only")
+    check_boolean(s.easy_apply_only, "easy_apply_only")
 
-    check_list(experience_level, "experience_level", ["Internship", "Entry level", "Associate", "Mid-Senior level", "Director", "Executive"])
-    check_list(job_type, "job_type", ["Full-time", "Part-time", "Contract", "Temporary", "Volunteer", "Internship", "Other"])
-    check_list(on_site, "on_site", ["On-site", "Remote", "Hybrid"])
+    check_list(s.experience_level, "experience_level", ["Internship", "Entry level", "Associate", "Mid-Senior level", "Director", "Executive"])
+    check_list(s.job_type, "job_type", ["Full-time", "Part-time", "Contract", "Temporary", "Volunteer", "Internship", "Other"])
+    check_list(s.on_site, "on_site", ["On-site", "Remote", "Hybrid"])
 
-    check_list(companies, "companies")
-    check_list(location, "location")
-    check_list(industry, "industry")
-    check_list(job_function, "job_function")
-    check_list(job_titles, "job_titles")
-    check_list(benefits, "benefits")
-    check_list(commitments, "commitments")
+    check_list(s.companies, "companies")
+    check_list(s.location, "location")
+    check_list(s.industry, "industry")
+    check_list(s.job_function, "job_function")
+    check_list(s.job_titles, "job_titles")
+    check_list(s.benefits, "benefits")
+    check_list(s.commitments, "commitments")
 
-    check_boolean(under_10_applicants, "under_10_applicants")
-    check_boolean(in_your_network, "in_your_network")
-    check_boolean(fair_chance_employer, "fair_chance_employer")
+    check_boolean(s.under_10_applicants, "under_10_applicants")
+    check_boolean(s.in_your_network, "in_your_network")
+    check_boolean(s.fair_chance_employer, "fair_chance_employer")
 
-    check_list(about_company_bad_words, "about_company_bad_words")
-    check_list(about_company_good_words, "about_company_good_words")
-    check_list(bad_words, "bad_words")
-    check_boolean(security_clearance, "security_clearance")
-    check_boolean(did_masters, "did_masters")
-    check_int(current_experience, "current_experience", -1)
-    check_int(min_experience, "min_experience", 0)
+    check_list(s.about_company_bad_words, "about_company_bad_words")
+    check_list(s.about_company_good_words, "about_company_good_words")
+    check_list(s.bad_words, "bad_words")
+    check_boolean(s.security_clearance, "security_clearance")
+    check_boolean(s.did_masters, "did_masters")
+    check_int(s.current_experience, "current_experience", -1)
+    check_int(s.min_experience, "min_experience", 0)
 
-    check_boolean(close_tabs, "close_tabs")
-    check_boolean(run_non_stop, "run_non_stop")
-    check_boolean(alternate_sortby, "alternate_sortby")
-    check_boolean(cycle_date_posted, "cycle_date_posted")
-    check_boolean(stop_date_cycle_at_24hr, "stop_date_cycle_at_24hr")
+    check_boolean(s.close_tabs, "close_tabs")
+    check_boolean(s.run_non_stop, "run_non_stop")
+    check_boolean(s.alternate_sortby, "alternate_sortby")
+    check_boolean(s.cycle_date_posted, "cycle_date_posted")
+    check_boolean(s.stop_date_cycle_at_24hr, "stop_date_cycle_at_24hr")
 
 
 
@@ -161,46 +160,46 @@ def validate_secrets() -> None | ValueError | TypeError:
         check_string(sec.llm_model, "llm_model")
 
 
-from config.settings import *
 def validate_settings() -> None | ValueError | TypeError:
     '''
     Validates all variables in the `/config/settings.py` file.
     '''
     global __validation_file_path
     __validation_file_path = "config/settings.py"
+    from config import settings as st
 
-    check_boolean(follow_companies, "follow_companies")
+    check_boolean(st.follow_companies, "follow_companies")
     # check_boolean(connect_hr, "connect_hr")
     # check_string(connect_request_message, "connect_request_message", min_length=10)
 
     # check_string(generated_resume_path, "generated_resume_path", min_length=1)
 
-    check_boolean(pause_after_filters, "pause_after_filters")
-    check_boolean(use_url_filters_only, "use_url_filters_only")
-    check_boolean(use_existing_browser, "use_existing_browser")
-    check_int(debugger_port, "debugger_port", 1)
-    if debugger_port > 65535:
+    check_boolean(st.pause_after_filters, "pause_after_filters")
+    check_boolean(st.use_url_filters_only, "use_url_filters_only")
+    check_boolean(st.use_existing_browser, "use_existing_browser")
+    check_int(st.debugger_port, "debugger_port", 1)
+    if st.debugger_port > 65535:
         raise ValueError(
-            f'The variable "debugger_port" in "{__validation_file_path}" must be <= 65535! Received `{debugger_port}`.'
+            f'The variable "debugger_port" in "{__validation_file_path}" must be <= 65535! Received `{st.debugger_port}`.'
         )
-    check_boolean(showAiErrorAlerts, "showAiErrorAlerts")
+    check_boolean(st.showAiErrorAlerts, "showAiErrorAlerts")
 
-    check_string(file_name, "file_name", min_length=1)
-    check_string(failed_file_name, "failed_file_name", min_length=1)
-    check_string(logs_folder_path, "logs_folder_path", min_length=1)
+    check_string(st.file_name, "file_name", min_length=1)
+    check_string(st.failed_file_name, "failed_file_name", min_length=1)
+    check_string(st.logs_folder_path, "logs_folder_path", min_length=1)
 
-    check_int(click_gap, "click_gap", 0)
-    check_int(max_applied_jobs, "max_applied_jobs", 1)
-    check_boolean(randomize_wait_times, "randomize_wait_times")
+    check_int(st.click_gap, "click_gap", 0)
+    check_int(st.max_applied_jobs, "max_applied_jobs", 1)
+    check_boolean(st.randomize_wait_times, "randomize_wait_times")
 
-    check_boolean(run_in_background, "run_in_background")
-    check_boolean(disable_extensions, "disable_extensions")
-    check_boolean(safe_mode, "safe_mode")
-    check_boolean(smooth_scroll, "smooth_scroll")
-    check_boolean(keep_screen_awake, "keep_screen_awake")
-    check_boolean(stealth_mode, "stealth_mode")
-    check_boolean(use_chromium, "use_chromium")
-    check_string(chromium_binary_path, "chromium_binary_path")
+    check_boolean(st.run_in_background, "run_in_background")
+    check_boolean(st.disable_extensions, "disable_extensions")
+    check_boolean(st.safe_mode, "safe_mode")
+    check_boolean(st.smooth_scroll, "smooth_scroll")
+    check_boolean(st.keep_screen_awake, "keep_screen_awake")
+    check_boolean(st.stealth_mode, "stealth_mode")
+    check_boolean(st.use_chromium, "use_chromium")
+    check_string(st.chromium_binary_path, "chromium_binary_path")
 
 
 
