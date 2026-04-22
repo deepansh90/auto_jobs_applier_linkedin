@@ -1,16 +1,26 @@
 from __future__ import annotations
-import google.generativeai as genai
+
+from typing import Literal
+
 from config.secrets import llm_model, llm_api_key
 from config.settings import showAiErrorAlerts
 from applybot.helpers import print_lg, critical_error_log, convert_to_json, smart_confirm
 from applybot.ai.prompts import *
-from typing import Literal
+
+
+def _genai():
+    """Lazy import: avoids `google.generativeai` deprecation FutureWarning on every process start."""
+    import google.generativeai as genai
+
+    return genai
+
 
 def gemini_get_models_list():
     """
     Lists available Gemini models that support content generation.
     """
     try:
+        genai = _genai()
         print_lg("Getting Gemini models list...")
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
         print_lg("Available models:")
@@ -27,6 +37,7 @@ def gemini_create_client():
     * Returns a configured Gemini model object or None if an error occurs.
     """
     try:
+        genai = _genai()
         print_lg("Configuring Gemini client...")
         if not llm_api_key or "YOUR_API_KEY" in llm_api_key:
             raise ValueError("Gemini API key is not set. Please set it in `config/secrets.py`.")

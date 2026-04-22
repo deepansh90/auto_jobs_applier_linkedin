@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 # Imports
+import json
 import os
 import sys
 import csv
@@ -70,6 +71,11 @@ if _need_compat_personals or _need_compat_questions:
     from config._compat import apply_compat_to_run_globals
 
     apply_compat_to_run_globals(globals(), _need_compat_personals, _need_compat_questions)
+
+# Real questions.py may omit `linkedIn` (capital I); compat only runs when import fails — fill default.
+from config._compat import ensure_linked_in_url_global
+
+ensure_linked_in_url_global(globals())
 
 try:
     from config.custom_questions import custom_answers
@@ -339,7 +345,6 @@ if use_AI:
         return {"error": "offline_mode", "result": None, "last_error": str(last_error) if last_error else None}
 
     from applybot.resumes.resume_gen import generate_tailored_files
-    import json
 
     def ai_text_answer(method_name: str, *args, **kwargs) -> str:
         '''
@@ -2555,6 +2560,16 @@ def run_applications(search_terms: list[str]) -> None:
                                 except Exception:
                                     modal = None
                                 follow_company(modal)
+                                _pdump = (os.environ.get("APPLYBOT_PRE_SUBMIT_DUMP") or "").strip()
+                                if _pdump:
+                                    try:
+                                        from applybot.easy_apply_debug import append_pre_submit_dump_jsonl
+
+                                        append_pre_submit_dump_jsonl(
+                                            _pdump, modal, str(job_id), str(job_link)
+                                        )
+                                    except Exception as _dump_e:
+                                        print_lg(f"[WARN] APPLYBOT_PRE_SUBMIT_DUMP failed: {_dump_e}")
                                 if _click_submit_easy_apply_final():
                                     date_applied = datetime.now()
                                     if not wait_span_click(driver, "Done", 2, silent=True):

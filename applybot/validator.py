@@ -9,7 +9,8 @@ def check_int(var: int, var_name: str, min_value: int=0) -> bool | TypeError | V
     return True
 
 def check_boolean(var: bool, var_name: str) -> bool | ValueError:
-    if var == True or var == False: return True
+    if isinstance(var, bool):
+        return True
     raise ValueError(f'The variable "{var_name}" in "{__validation_file_path}" expects a Boolean input `True` or `False`, not "{var}" of type "{type(var)}" instead!\n\nSolution:\nPlease open "{__validation_file_path}" and update "{var_name}" to either `True` or `False` (case-sensitive, T and F must be CAPITAL/uppercase).\nExample: `{var_name} = True`\n\nNOTE: Do NOT surround Boolean values in quotes ("True")X !\n\n')
 
 def check_string(var: str, var_name: str, options: list=[], min_length: int=0) -> bool | TypeError | ValueError:
@@ -120,8 +121,6 @@ def validate_search() -> None | ValueError | TypeError:
     check_boolean(in_your_network, "in_your_network")
     check_boolean(fair_chance_employer, "fair_chance_employer")
 
-    check_boolean(pause_after_filters, "pause_after_filters")
-
     check_list(about_company_bad_words, "about_company_bad_words")
     check_list(about_company_good_words, "about_company_good_words")
     check_list(bad_words, "bad_words")
@@ -130,31 +129,36 @@ def validate_search() -> None | ValueError | TypeError:
     check_int(current_experience, "current_experience", -1)
     check_int(min_experience, "min_experience", 0)
 
+    check_boolean(close_tabs, "close_tabs")
+    check_boolean(run_non_stop, "run_non_stop")
+    check_boolean(alternate_sortby, "alternate_sortby")
+    check_boolean(cycle_date_posted, "cycle_date_posted")
+    check_boolean(stop_date_cycle_at_24hr, "stop_date_cycle_at_24hr")
 
 
 
-from config.secrets import *
+
 def validate_secrets() -> None | ValueError | TypeError:
     '''
     Validates all variables in the `/config/secrets.py` file.
+
+    When ``use_AI`` is False, LLM URL/key/model/provider checks are skipped so
+    ``--validate-config`` can pass without API keys (offline / no-AI runs).
     '''
     global __validation_file_path
     __validation_file_path = "config/secrets.py"
+    from config import secrets as sec
 
-    check_string(username, "username", min_length=5)
-    check_string(password, "password", min_length=5)
+    check_string(sec.username, "username", min_length=5)
+    check_string(sec.password, "password", min_length=5)
 
-    check_boolean(use_AI, "use_AI")
-    check_string(llm_api_url, "llm_api_url", min_length=5)
-    check_string(llm_api_key, "llm_api_key")
-    # check_string(llm_embedding_model, "llm_embedding_model")
-    check_boolean(stream_output, "stream_output")
-    
-    check_string(ai_provider, "ai_provider", ["openai", "gemini"])
-    check_string(llm_model, "llm_model")
-
-    ##<
-
+    check_boolean(sec.use_AI, "use_AI")
+    check_boolean(sec.stream_output, "stream_output")
+    if sec.use_AI:
+        check_string(sec.llm_api_url, "llm_api_url", min_length=5)
+        check_string(sec.llm_api_key, "llm_api_key")
+        check_string(sec.ai_provider, "ai_provider", ["openai", "gemini"])
+        check_string(sec.llm_model, "llm_model")
 
 
 from config.settings import *
@@ -165,17 +169,21 @@ def validate_settings() -> None | ValueError | TypeError:
     global __validation_file_path
     __validation_file_path = "config/settings.py"
 
-    check_boolean(close_tabs, "close_tabs")
     check_boolean(follow_companies, "follow_companies")
     # check_boolean(connect_hr, "connect_hr")
     # check_string(connect_request_message, "connect_request_message", min_length=10)
 
-    check_boolean(run_non_stop, "run_non_stop")
-    check_boolean(alternate_sortby, "alternate_sortby")
-    check_boolean(cycle_date_posted, "cycle_date_posted")
-    check_boolean(stop_date_cycle_at_24hr, "stop_date_cycle_at_24hr")
-    
     # check_string(generated_resume_path, "generated_resume_path", min_length=1)
+
+    check_boolean(pause_after_filters, "pause_after_filters")
+    check_boolean(use_url_filters_only, "use_url_filters_only")
+    check_boolean(use_existing_browser, "use_existing_browser")
+    check_int(debugger_port, "debugger_port", 1)
+    if debugger_port > 65535:
+        raise ValueError(
+            f'The variable "debugger_port" in "{__validation_file_path}" must be <= 65535! Received `{debugger_port}`.'
+        )
+    check_boolean(showAiErrorAlerts, "showAiErrorAlerts")
 
     check_string(file_name, "file_name", min_length=1)
     check_string(failed_file_name, "failed_file_name", min_length=1)

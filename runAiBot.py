@@ -36,6 +36,9 @@ Onboarding (first-time credentials and resume) is separate:
 def main_cli() -> int:
     argv = sys.argv[1:]
     if not argv:
+        from applybot.config_bootstrap import require_secrets_file
+
+        require_secrets_file()
         from applybot.__main__ import main
 
         main()
@@ -44,6 +47,9 @@ def main_cli() -> int:
         print(_CLI_HELP.strip())
         return 0
     if argv[0] == "--validate-config":
+        from applybot.config_bootstrap import require_secrets_file
+
+        require_secrets_file()
         from applybot.validator import validate_config
 
         validate_config()

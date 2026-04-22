@@ -15,9 +15,11 @@ Then open **http://127.0.0.1:5000/** (or let the script open it), finish the ste
 | Need | File |
 |------|------|
 | LinkedIn + AI keys | `cp config/secrets.example.py config/secrets.py` |
+| Name, phone, address, EEO | `cp config/personals.example.py config/personals.py` |
+| Resume path, LinkedIn URL, salary-related answers | `cp config/questions.example.py config/questions.py` |
 | Salary, visa, notices | `cp config/answers.example.py config/answers.py` |
-| Job titles & filters | `config/search.py` |
-| Limits & browser | `config/settings.py` |
+| Job titles & filters | `config/search.py` (committed defaults; edit in place) |
+| Limits & browser | `config/settings.py` (committed defaults; edit in place) |
 
 `config/profile.json` is **created from your resume** on first bot run (or use `config/profile.example.json` as a template).
 
@@ -25,4 +27,4 @@ Optional keyword overrides: `config/custom_questions.example.py` → `custom_que
 
 ---
 
-Next: **[RUN.md](RUN.md)** (login, logs). URL filter codes: **[LINKEDIN_URL_REFERENCE.md](LINKEDIN_URL_REFERENCE.md)**.
+Next: **[RUN.md](RUN.md)** (login, logs, run the bot). Optional live LinkedIn regression (pytest, CSV + pre-submit dumps): **[RUN.md §7](RUN.md#7-live-e2e-optional-regression)**. URL filter codes: **[LINKEDIN_URL_REFERENCE.md](LINKEDIN_URL_REFERENCE.md)**.

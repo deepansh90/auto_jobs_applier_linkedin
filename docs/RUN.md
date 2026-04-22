@@ -83,25 +83,13 @@ The first run opens a fresh Chromium window and navigates to LinkedIn. You have 
 
 After **Complete Setup**, copy **`./venv/bin/python runAiBot.py`** from the success screen and run it in a terminal at the repo root (no in-page LinkedIn launch).
 
-`--validate-config` requires a real `config/secrets.py` (same as a normal run). In CI, only `--help` / `--dry-run` are guaranteed without secrets; see `tests/test_cli.py` (run with `./venv/bin/python -m pytest tests/test_cli.py -v` from the repo root).
+`--validate-config` and a normal run both require `config/secrets.py`. If it is missing, the CLI exits with code **2** and prints `cp config/secrets.example.py config/secrets.py` on stderr. With `use_AI = False` in `secrets.py`, validation skips LLM URL/key/model checks so you can confirm the rest of the config without API keys.
 
-### Live E2E (at least 3 Easy Apply rows in CSV)
+In CI, only `--help` / setup `--dry-run` are guaranteed without secrets; see `tests/test_cli.py` and `tests/test_config_bootstrap.py`.
 
-Opt-in only (`RUN_LINKEDIN_E2E=1`). Runs the real browser against LinkedIn and asserts the applications CSV grew by at least **3** rows (configurable with `LINKEDIN_E2E_MIN_APPLIES`). Uses `APPLYBOT_HEADLESS_UI=1` so dialogs do not block on stdin.
+To reset the local pytest cache: `rm -rf .pytest_cache` (the directory is listed in `.gitignore` and should not be committed).
 
-Use the **venv’s** `python` (not bare `python3` on macOS, which may stay on Homebrew and miss pytest):
-
-```bash
-./venv/bin/python -m pip install -r requirements.txt
-export RUN_LINKEDIN_E2E=1
-export MAX_APPLIED_JOBS=3
-export APPLYBOT_HEADLESS_UI=1
-./venv/bin/python -m pytest tests/e2e/test_live_linkedin_e2e.py -v
-```
-
-Do not paste trailing comments on the same line as `pip install` in zsh; a broken paste can leave `installs` as a stray command.
-
-Shell equivalent: `./scripts/run_e2e_three_applies.sh` (from repo root, after `chmod +x`). Default GitHub Action uses `python -m pytest -m "not e2e"` so CI stays offline.
+Live LinkedIn pytest (real applies, pre-submit JSONL dumps): see **[§7 Live E2E (optional regression)](#7-live-e2e-optional-regression)** below.
 
 ## 6. Run the Bot (Easy Apply)
 
@@ -120,7 +108,29 @@ The bot will:
 3. For each matching job: evaluate relevance (AI), click Easy Apply, answer questions, upload resume, submit.
 4. Stop after `max_applied_jobs` successful submissions (see `config/settings.py`).
 
-## 7. While it runs
+## 7. Live E2E (optional regression)
+
+Opt-in only (`RUN_LINKEDIN_E2E=1`). Runs the real browser against LinkedIn and asserts the applications CSV grew by at least **5** rows by default (`LINKEDIN_E2E_MIN_APPLIES` / `MAX_APPLIED_JOBS`). Uses `APPLYBOT_HEADLESS_UI=1` so dialogs do not block on stdin.
+
+The pytest harness sets **`APPLYBOT_PRE_SUBMIT_DUMP`** to a temp JSONL file: before each final **Submit application** click, the bot appends a line with visible `input` / `textarea` / `select` values for a quick sanity check (name or phone substring). LinkedIn’s DOM varies; spot-check the real confirmation UI when in doubt.
+
+Use the **venv’s** `python` (not bare `python3` on macOS, which may stay on Homebrew and miss pytest):
+
+```bash
+./venv/bin/python -m pip install -r requirements.txt
+export RUN_LINKEDIN_E2E=1
+export MAX_APPLIED_JOBS=5
+export LINKEDIN_E2E_MIN_APPLIES=5
+export APPLYBOT_HEADLESS_UI=1
+export LINKEDIN_E2E_TIMEOUT_SEC=7200
+./venv/bin/python -m pytest tests/e2e/test_live_linkedin_e2e.py -v
+```
+
+Do not paste trailing comments on the same line as `pip install` in zsh; a broken paste can leave `installs` as a stray command.
+
+Shell helper (runs the bot only, no pytest assertions): `./scripts/run_e2e_three_applies.sh` from repo root (after `chmod +x`). Default GitHub Action uses `python -m pytest -m "not e2e"` so CI stays offline.
+
+## 8. While it runs
 
 - **`logs/log.txt`** — grep `f_EA=true`, `[DEBUG] Easy Apply modal opened`, `OFFLINE MODE`.
 - **`logs/screenshots/`** — failures.
@@ -132,7 +142,7 @@ The bot will:
 
 **Problems:** [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
-## 8. Updating
+## 9. Updating
 
 ```bash
 git pull origin main

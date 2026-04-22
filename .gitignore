@@ -18,11 +18,15 @@ resume_output/
 
 # Environment & IDE
 __pycache__/
+.pytest_cache/
 venv/
 .DS_Store
 .vscode/
 .idea/
 .gemini/
+
+# E2E / local pre-submit field dumps (never commit)
+pre_submit_*.jsonl
 
 # Temporary Files
 old/

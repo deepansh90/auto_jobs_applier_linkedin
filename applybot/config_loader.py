@@ -2,13 +2,16 @@ import json
 import os
 import sys
 
+_REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+
 def apply_user_overlay():
     """
     Safely loads config/user.settings.json and overlays its values 
     onto the existing Python config modules.
     This replaces the brittle regex-rewriting pattern previously used.
     """
-    settings_path = os.path.join("config", "user.settings.json")
+    settings_path = os.path.join(_REPO_ROOT, "config", "user.settings.json")
     if not os.path.exists(settings_path):
         return
 

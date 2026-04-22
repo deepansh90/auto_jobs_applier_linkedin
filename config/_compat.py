@@ -87,7 +87,7 @@ linkedin_summary = _answers.get("linkedin_summary") or _profile.get("summary") o
 cover_letter = _answers.get("cover_letter", "")
 user_information_all = _answers.get("user_information_all") or _profile.get("summary") or ""
 recent_employer = _answers.get("recent_employer") or _profile.get("recent_employer") or ""
-confidence_level = _answers.get("confidence_level", "7")
+confidence_level = str(_answers.get("confidence_level", "7") or "7")
 pause_before_submit = bool(_answers.get("pause_before_submit", False))
 pause_at_failed_question = bool(_answers.get("pause_at_failed_question", False))
 overwrite_previous_answers = bool(_answers.get("overwrite_previous_answers", False))
@@ -130,6 +130,30 @@ _QUESTIONS_EXPORT = (
     "pause_at_failed_question",
     "overwrite_previous_answers",
 )
+
+
+def ensure_linked_in_url_global(g: dict) -> None:
+    """
+    ``from config.questions import *`` skips compat when questions.py exists; older or
+    minimal copies may omit ``linkedIn`` (capital I) while ``__main__`` still references it.
+    """
+    if "linkedIn" in g:
+        return
+    li = ""
+    try:
+        from config import answers as _ans_mod  # type: ignore
+
+        li = (
+            str(getattr(_ans_mod, "linkedIn", "") or "")
+            or str(getattr(_ans_mod, "linkedin", "") or "")
+        ).strip()
+    except Exception:
+        pass
+    if not li:
+        prof = _load_profile()
+        if prof:
+            li = str(prof.get("linkedin_url") or "").strip()
+    g["linkedIn"] = li
 
 
 def apply_compat_to_run_globals(g: dict, need_personals: bool, need_questions: bool) -> None:
