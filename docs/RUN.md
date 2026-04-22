@@ -7,6 +7,7 @@ How to install dependencies and run the bot on your local machine.
 - **macOS or Linux** (tested on macOS 15). Windows works but is not the primary target.
 - **Python 3.10+** (3.13 recommended). Check with `python3 --version`.
 - **Chromium** (recommended) or Google Chrome.
+  - Windows (PowerShell): `winget install Hibbiki.Chromium --accept-source-agreements --accept-package-agreements`
   - macOS: `brew install --cask chromium`
   - Linux: `sudo apt install chromium-browser` or your distro's equivalent.
 - A valid LinkedIn account. Free accounts work; Premium is NOT required.

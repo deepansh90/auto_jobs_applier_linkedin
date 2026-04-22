@@ -217,7 +217,16 @@ def print_lg(*msgs: str | dict, end: str = "\n", pretty: bool = False, flush: bo
         if log_parent:
             os.makedirs(log_parent, exist_ok=True)
         for message in msgs:
-            pprint(message) if pretty else print(message, end=end, flush=flush)
+            if pretty:
+                pprint(message)
+            else:
+                try:
+                    print(message, end=end, flush=flush)
+                except UnicodeEncodeError:
+                    # Fallback for Windows consoles with limited character sets
+                    enc = sys.stdout.encoding or "utf-8"
+                    safe_msg = str(message).encode(enc, errors="replace").decode(enc)
+                    print(safe_msg, end=end, flush=flush)
             with open(__logs_file_path, 'a+', encoding="utf-8") as file:
                 file.write(str(message) + end)
     except Exception as e:

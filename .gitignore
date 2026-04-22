@@ -11,6 +11,7 @@ config/user.settings.json
 config/.setup_complete
 
 # Personal Data & Logs
+all resumes/
 history/
 logs/
 resume_output/
