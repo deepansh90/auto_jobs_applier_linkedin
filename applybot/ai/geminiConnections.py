@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Literal
 
-from config.secrets import llm_model, llm_api_key
 from config.settings import showAiErrorAlerts
 from applybot.helpers import print_lg, critical_error_log, convert_to_json, smart_confirm
 from applybot.ai.prompts import *
@@ -37,23 +36,25 @@ def gemini_create_client():
     * Returns a configured Gemini model object or None if an error occurs.
     """
     try:
+        from config import secrets as sec
+
         genai = _genai()
         print_lg("Configuring Gemini client...")
-        if not llm_api_key or "YOUR_API_KEY" in llm_api_key:
+        if not sec.llm_api_key or "YOUR_API_KEY" in sec.llm_api_key:
             raise ValueError("Gemini API key is not set. Please set it in `config/secrets.py`.")
         
-        genai.configure(api_key=llm_api_key)
+        genai.configure(api_key=sec.llm_api_key)
         
         models = gemini_get_models_list()
         if "error" in models:
             raise ValueError(models[1])
-        if not any(llm_model in m for m in models):
-             raise ValueError(f"Model `{llm_model}` is not found or not available for content generation!")
+        if not any(sec.llm_model in m for m in models):
+             raise ValueError(f"Model `{sec.llm_model}` is not found or not available for content generation!")
 
-        model = genai.GenerativeModel(llm_model)
+        model = genai.GenerativeModel(sec.llm_model)
         
         print_lg("---- SUCCESSFULLY CONFIGURED GEMINI CLIENT! ----")
-        print_lg(f"Using Model: {llm_model}")
+        print_lg(f"Using Model: {sec.llm_model}")
         print_lg("Check './config/secrets.py' for more details.\n")
         print_lg("---------------------------------------------")
         
