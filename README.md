@@ -7,7 +7,11 @@
 The bot drives **Chromium** or **Google Chrome**.
 
 - **Windows (PowerShell, Chromium via winget):**  
-  `winget install Hibbiki.Chromium --accept-source-agreements --accept-package-agreements`
+  `winget install Hibbiki.Chromium --accept-source-agreements --accept-package-agreements`  
+  **Note:** After installation, you must set `chromium_binary_path` in `config/settings.py`. (e.g. `r"C:\Users\<user>\AppData\Local\Chromium\Application\chrome.exe"`)
+  
+  To find the path, run:  
+  `Get-ChildItem -Path $env:LOCALAPPDATA -Filter chrome.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName`
 - **macOS:**  
   `brew install --cask chromium`
 - **Linux (Debian/Ubuntu):**  
