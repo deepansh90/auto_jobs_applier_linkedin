@@ -35,6 +35,26 @@ custom_answers = {
     "onsite": "Yes",
     "hybrid": "Yes",
 
+    # --- Screening: CRM / marketing / automation (edit to your truthful Yes/No; remove lines you do not use) ---
+    # Keywords match as substrings in the question label (case-insensitive). Prefer specific phrases.
+    "mailchimp": "Yes",
+    "mailmodo": "Yes",
+    "email campaign": "Yes",
+    "email campaigns": "Yes",
+    "wati": "Yes",
+    "aisensy": "Yes",
+    "leadsquared": "Yes",
+    "hubspot": "Yes",
+    "zoho crm": "Yes",
+    "crm systems": "Yes",
+    "drip": "Yes",
+    "segmentation": "Yes",
+    "automation workflow": "Yes",
+    "zapier": "Yes",
+    "pabbly": "Yes",
+    "google sheets": "Yes",
+    "campaign tracking": "Yes",
+
     # Employer-specific compliance questions (add your own as you encounter them)
     # "Do you anticipate needing <Company> to sponsor your work authorization...": "No",
     # "Have you applied to <Company> in the past 6 months": "No",

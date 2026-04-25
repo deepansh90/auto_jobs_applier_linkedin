@@ -485,6 +485,9 @@ def is_logged_in_LN() -> bool:
     nav = try_find_by_classes(driver, ["global-nav", "nav-container"])
     if nav: return True
     
+    # If it mentions total/overall, it's not skill-specific
+    if any(x in label_lower for x in ["total", "overall", "relevant", "work experience"]):
+        return False
     if try_linkText(driver, "Sign in"): return False
     if try_xp(driver, '//button[@type="submit" and contains(text(), "Sign in")]', click=False):
         return False
@@ -1238,7 +1241,7 @@ def get_page_info() -> tuple[WebElement | None, int | None]:
 
 
 
-def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_jobs: set) -> tuple[str, str, str, str, str, bool]:
+def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_jobs: set, _retry: bool = False) -> tuple[str, str, str, str, str, bool]:
     '''
     # Function to get job main details.
     Returns a tuple of (job_id, title, company, work_location, work_style, skip)
@@ -1288,6 +1291,21 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
         buffer(click_gap)
         return (job_id,title,company,work_location,work_style,skip)
     except Exception as e:
+        # Patch 4: Single bounded retry — re-fetch the element from the DOM if stale
+        if not _retry and "stale element" in str(e).lower():
+            try:
+                job_id_attr = job.get_dom_attribute('data-occludable-job-id')
+            except Exception:
+                job_id_attr = None
+            if job_id_attr:
+                try:
+                    refreshed = driver.find_element(
+                        By.XPATH, f"//li[@data-occludable-job-id='{job_id_attr}']"
+                    )
+                    dbg(f"Retrying get_job_main_details for stale job {job_id_attr}")
+                    return get_job_main_details(refreshed, blacklisted_companies, rejected_jobs, _retry=True)
+                except Exception:
+                    pass
         try:
             job_id = job.get_dom_attribute('data-occludable-job-id')
             print_lg(f"Error fetching main details for Job ID {job_id}: {str(e)[:100]}")
@@ -1334,10 +1352,17 @@ def check_blacklist(rejected_jobs: set, job_id: str, company: str, blacklisted_c
 def extract_years_of_experience(text: str) -> int:
     # Extract all patterns like '10+ years', '5 years', '3-5 years', etc.
     matches = re.findall(re_experience, text)
-    if len(matches) == 0: 
+    if len(matches) == 0:
         print_lg(f'\n{text}\n\nCouldn\'t find experience requirement in About the Job!')
         return 0
-    return max([int(match) for match in matches if int(match) <= 12])
+    ints = [int(m) for m in matches]
+    try:
+        ce = int(current_experience)
+    except (TypeError, ValueError):
+        ce = -1
+    ceiling = (ce + 5) if ce >= 0 else 12
+    pool = [n for n in ints if n <= ceiling]
+    return max(pool) if pool else 0
 
 
 
@@ -1369,7 +1394,19 @@ def get_job_description(
         jobDescription = find_by_class(driver, "jobs-box__html-content").text
         jobDescriptionLow = jobDescription.lower()
         for word in bad_words:
-            if word.lower() in jobDescriptionLow:
+            w = (word or "").strip()
+            if not w:
+                continue
+            wl = w.lower()
+            try:
+                # Leading punctuation (e.g. ".net") is not a \w boundary; use (?<!\w)(?!\w) instead.
+                if re.match(r"^[^\w]", wl):
+                    pat = re.compile(r"(?<!\w)" + re.escape(wl) + r"(?!\w)")
+                else:
+                    pat = re.compile(r"\b" + re.escape(wl) + r"\b")
+            except re.error:
+                continue
+            if pat.search(jobDescriptionLow):
                 skipMessage = f'\n{jobDescription}\n\nContains bad word "{word}". Skipping this job!\n'
                 skipReason = "Found a Bad Word in About Job"
                 skip = True
@@ -1649,6 +1686,34 @@ def _click_submit_easy_apply_final() -> bool:
     except Exception:
         pass
         
+    doc_xps = [
+        '//button[contains(normalize-space(.), "Submit application")]',
+        '//button[.//span[contains(normalize-space(.), "Submit application")]]',
+        '//button[contains(@aria-label, "Submit application")]',
+        '//button[contains(@aria-label, "Submit your application")]',
+        '//button[contains(normalize-space(.), "Done")]',
+        '//button[contains(normalize-space(.), "Post")]',
+        '//button[contains(normalize-space(.), "Submit")]',
+    ]
+    for xp in doc_xps:
+        try:
+            for btn in driver.find_elements(By.XPATH, xp):
+                try:
+                    if not btn.is_displayed() or not btn.is_enabled():
+                        continue
+                except Exception:
+                    continue
+                scroll_to_view(driver, btn, True)
+                try:
+                    btn.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", btn)
+                buffer(click_gap)
+                print_lg(f"[INFO] Document-wide click matched: {xp[:60]}…")
+                return True
+        except Exception:
+            continue
+
     print_lg("Click Failed! Didn't find 'Submit application'")
     screenshot(driver, "SUBMIT_FAILURE", "Failed to find submit button")
     return False
@@ -1706,9 +1771,30 @@ def get_custom_answer(label: str) -> str | None:
     Returns the answer if found, else None.
     '''
     label_lower = label.lower()
+    
+    # 1. Try exact word matches using boundaries to avoid partial matches (e.g., 'state' in 'statements')
     for keyword, value in custom_answers.items():
-        if keyword.lower() in label_lower:
+        kw_low = keyword.lower()
+        if re.search(rf"\b{re.escape(kw_low)}\b", label_lower):
             return str(value)
+            
+    # 2. Try matching technical skills even if they are part of a word (e.g., 'LLMs', 'RAG-enabled')
+    # We only do this for keywords that look like technical skills (all caps or contains special chars)
+    # or are explicitly in a 'technical' list.
+    technical_keywords = ["llm", "rag", "mcp", "ai", "aws", "gcp", "sql", "java", "scala"]
+    for keyword, value in custom_answers.items():
+        kw_low = keyword.lower()
+        if kw_low in technical_keywords and kw_low in label_lower:
+            return str(value)
+    
+    # 3. Try matching words inside brackets specifically (common for LinkedIn skills)
+    bracketed = re.findall(r'\((.*?)\)', label_lower)
+    for skill in bracketed:
+        skill = skill.strip().lower()
+        for keyword, value in custom_answers.items():
+            if keyword.lower() == skill:
+                return str(value)
+    
     return None
 
 def save_questions_to_custom_config(questions_list: set) -> None:
@@ -1760,7 +1846,78 @@ def answer_common_questions(label: str, answer: str) -> str:
     return answer
 
 
+def _match_ai_text_to_select_option(raw: str, opts: list[str]) -> str:
+    """Map free-text AI reply to one visible ``<select>`` option."""
+    raw = (raw or "").strip().strip('"').strip("'")
+    if not raw:
+        return ""
+    low = raw.lower()
+    for opt in opts:
+        ol = (opt or "").strip().lower()
+        if not ol or ol == "select an option":
+            continue
+        if ol == low or ol in low or low in ol:
+            return opt
+    for opt in opts:
+        if raw.lower() in (opt or "").lower():
+            return opt
+    return ""
+
+
+def _ai_answer_select_label(
+    label_org: str, options_visible: list[str], job_description: str | None
+) -> str:
+    """Ask AI to pick exactly one option from a native select's visible labels."""
+    opts = [o for o in options_visible if o and o.strip() and o.strip().lower() != "select an option"]
+    if len(opts) < 1 or not use_AI:
+        # Patch 6: Even without AI, answer binary questions with a safe default
+        _lower_opts = {o.strip().lower() for o in opts if o.strip()}
+        if _lower_opts and _lower_opts <= {"yes", "no"}:
+            return "Yes"
+        return ""
+    try:
+        r = ai_call(
+            "answer_question",
+            aiClient,
+            label_org,
+            options=opts,
+            question_type="single_select",
+            job_description=job_description,
+            about_company=None,
+            user_information_all=user_information_all,
+        )
+    except Exception:
+        return ""
+    if isinstance(r, dict):
+        return ""
+    return _match_ai_text_to_select_option(str(r), opts)
+
+
 # Function to answer the questions for Easy Apply
+def _label_looks_skill_specific_years(label_lower: str) -> bool:
+    """True when the label asks for years in a named skill/domain (not total career YOE)."""
+    if any(x in label_lower for x in ["total", "overall", "relevant", "work experience"]):
+        return False
+    # If it has "in [skill]", "with [skill]", or bracketed info
+    return bool(re.search(r"\bin\s+[a-z0-9+#.\-]{2,}\b", label_lower)) or \
+           bool(re.search(r"\bwith\s+[a-z0-9+#.\-]{2,}\b", label_lower)) or \
+           "(" in label_lower
+
+
+def _radio_answer_for_label_match(answer: str | None) -> str:
+    """
+    LinkedIn radio options are tracked internally as '\"Yes\"<value>'; XPath and logs
+    need the visible label (e.g. Yes). Custom answers must match the same shape.
+    """
+    a = (answer or "").strip()
+    if not a:
+        return ""
+    if "<" in a and ">" in a:
+        head = a.split("<", 1)[0].strip().strip('"').strip("'").strip()
+        return head or a
+    return a
+
+
 def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: str, job_description: str | None = None ) -> set:
     # Get all questions from the page
      
@@ -1791,7 +1948,12 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
             prev_answer = selected_option
             if overwrite_previous_answers or selected_option == "Select an option":
                 ##> ------ WINDY_WINDWARD Email:karthik.sarode23@gmail.com - Added fuzzy logic to answer location based questions ------
-                if 'email' in label or 'phone' in label: 
+                _prev_ok = prev_answer and prev_answer.strip().lower() != "select an option"
+                if _prev_ok and (
+                    re.search(r"\bemail\b", label)
+                    or re.search(r"\b(mobile|telephone)\b", label)
+                    or re.search(r"\bphone\b", label)
+                ):
                     answer = prev_answer
                 elif 'gender' in label or 'sex' in label: 
                     answer = gender
@@ -1800,21 +1962,48 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 elif 'proficiency' in label: 
                     answer = 'Professional'
                 # Add location handling
-                elif any(loc_word in label for loc_word in ['location', 'city', 'state', 'country']):
-                    if 'country' in label:
-                        answer = country 
+                elif any(
+                    loc_word in label
+                    for loc_word in ['location', 'city', 'state', 'country', 'nationality']
+                ):
+                    if 'country' in label or 'nationality' in label:
+                        answer = country
                     elif 'state' in label:
                         answer = state
                     elif 'city' in label:
                         answer = _easy_apply_location_text_answer(work_location)
                     else:
                         answer = _easy_apply_location_text_answer(work_location)
-                else: 
+                else:
                     custom_answer = get_custom_answer(label)
                     if custom_answer:
                         answer = custom_answer
                     else:
-                        answer = answer_common_questions(label,answer)
+                        answer = answer_common_questions(label, answer)
+                if (not answer) or str(answer).strip().lower() == "select an option":
+                    answer = "Yes"
+                # --- Patch 1A: Binary-option coercion ---
+                # If the <select> only has Yes/No-style options and our answer is numeric,
+                # coerce: positive number → "Yes", zero → "No".
+                _binary_labels = {"yes", "no", "agree", "disagree", "true", "false", "i agree", "i disagree"}
+                _real_opts = [o.strip().lower() for o in optionsText if o.strip().lower() not in ("", "select an option")]
+                if (
+                    len(_real_opts) <= 3
+                    and all(ro in _binary_labels for ro in _real_opts)
+                    and answer not in ("", None)
+                    and str(answer).replace(".", "", 1).isdigit()
+                ):
+                    coerced = "Yes" if float(answer) > 0 else "No"
+                    print_lg(f'[Patch1A] Coerced numeric "{answer}" → "{coerced}" for binary select "{label_org}"')
+                    answer = coerced
+                    # Patch 1A+: Auto-save corrected answer for future runs
+                    try:
+                        _clean_label = label_org.split(" [ ")[0].split(" (")[0].strip()
+                        if _clean_label:
+                            save_questions_to_custom_config({(_clean_label, coerced)})
+                    except Exception as _save_err:
+                        dbg(f"Patch1A+ auto-save failed: {_save_err}")
+                # --- End Patch 1A ---
                 try: 
                     select.select_by_visible_text(answer)
                 except NoSuchElementException as e:
@@ -1845,12 +2034,35 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                                 foundOption = True
                                 break
                     if not foundOption:
-                        #TODO: Use AI to answer the question need to be implemented logic to extract the options for the question
-                        print_lg(f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!')
-                        select.select_by_index(randint(1, len(select.options)-1))
-                        answer = select.first_selected_option.text
-                        randomly_answered_questions.add((f'{label_org} [ {options} ]',"select"))
-            questions_list.add((f'{label_org} [ {options} ]', answer, "select", prev_answer))
+                        ai_pick = _ai_answer_select_label(label_org, optionsText, job_description)
+                        if ai_pick:
+                            try:
+                                select.select_by_visible_text(ai_pick)
+                                answer = ai_pick
+                                foundOption = True
+                                print_lg(f'[AI] Selected "{ai_pick}" for dropdown "{label_org}"')
+                            except NoSuchElementException:
+                                foundOption = False
+                    if not foundOption:
+                        print_lg(
+                            f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!'
+                        )
+                        n_opts = len(select.options)
+                        if n_opts > 1:
+                            select.select_by_index(randint(1, n_opts - 1))
+                            answer = select.first_selected_option.text
+                        randomly_answered_questions.add((f'{label_org} [ {options} ]', "select"))
+            # Patch 1B + 2B: Record actual post-interaction value, not uninitialised default.
+            # When the answer block was skipped (prev was already set), use prev_answer.
+            # When the answer block ran, re-read the actual selection for accuracy.
+            if overwrite_previous_answers or selected_option == "Select an option":
+                try:
+                    _recorded_answer = select.first_selected_option.text
+                except Exception:
+                    _recorded_answer = answer
+            else:
+                _recorded_answer = selected_option  # what LinkedIn already had
+            questions_list.add((f'{label_org} [ {options} ]', _recorded_answer, "select", prev_answer))
             continue
         
         # Check if it's a radio Question
@@ -1886,19 +2098,27 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                         answer = custom_answer
                     else:
                         answer = answer_common_questions(label,answer)
-                foundOption = try_xp(radio, f".//label[normalize-space()='{answer}']", False)
+                match_label = _radio_answer_for_label_match(str(answer))
+                foundOption = try_xp(radio, f".//label[normalize-space()='{match_label}']", False)
                 if foundOption: 
                     actions.move_to_element(foundOption).click().perform()
+                    answer = match_label
                 else:    
-                    possible_answer_phrases = ["Decline", "not wish", "don't wish", "Prefer not", "not want"] if answer == 'Decline' else [answer]
+                    _decline_flow = answer == 'Decline'
+                    possible_answer_phrases = (
+                        ["Decline", "not wish", "don't wish", "Prefer not", "not want"]
+                        if _decline_flow
+                        else [match_label, str(answer).strip()]
+                    )
                     ele = options[0]
-                    answer = options_labels[0]
+                    answer = _radio_answer_for_label_match(options_labels[0]) if options_labels else str(answer)
                     for phrase in possible_answer_phrases:
                         for i, option_label in enumerate(options_labels):
                             if phrase in option_label:
                                 foundOption = options[i]
                                 ele = foundOption
-                                answer = f'Decline ({option_label})' if len(possible_answer_phrases) > 1 else option_label
+                                vis = _radio_answer_for_label_match(option_label)
+                                answer = f'Decline ({vis})' if _decline_flow else vis
                                 break
                         if foundOption: break
                     # if answer == 'Decline':
@@ -1911,7 +2131,8 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                     #             break
                     actions.move_to_element(ele).click().perform()
                     if not foundOption: randomly_answered_questions.add((f'{label_org} ]',"radio"))
-            else: answer = prev_answer
+            else:
+                answer = _radio_answer_for_label_match(prev_answer) if prev_answer else prev_answer
             questions_list.add((label_org+" ]", answer, "radio", prev_answer))
             continue
         
@@ -1931,7 +2152,11 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 custom_answer = get_custom_answer(label)
                 if custom_answer:
                     answer = custom_answer
-                elif 'experience' in label or 'years' in label: answer = years_of_experience
+                elif (
+                    ("experience" in label or "years" in label)
+                    and not _label_looks_skill_specific_years(label)
+                ):
+                    answer = years_of_experience
                 elif 'phone' in label or 'mobile' in label: answer = phone_number
                 elif 'street' in label: answer = street
                 elif 'city' in label or 'location' in label or 'address' in label:
@@ -1971,9 +2196,15 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 elif 'scale of 1-10' in label: answer = confidence_level
                 elif 'headline' in label: answer = linkedin_headline
                 elif ('hear' in label or 'come across' in label) and 'this' in label and ('job' in label or 'position' in label): answer = "LinkedIn"
-                elif 'state' in label or 'province' in label: answer = state
+                elif 'state' in label or 'province' in label:
+                    answer = state
+                    do_actions = True
                 elif 'zip' in label or 'postal' in label or 'code' in label: answer = zipcode
-                elif 'country' in label: answer = country
+                elif 'country' in label:
+                    answer = country
+                    do_actions = True
+                elif 'nationality' in label:
+                    answer = country
                 else: answer = answer_common_questions(label,answer)
                 ##> ------ Yang Li : MARKYangL - Feature ------
                 if answer == "":
@@ -1982,8 +2213,27 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                         answer = ai_answer
                         print_lg(f'AI Answered received for question "{label_org}" \nhere is answer: "{answer}"')
                     else:
-                        randomly_answered_questions.add((label_org, "text"))
-                        answer = years_of_experience
+                        # Patch 7: Last-resort fallback for skill-specific years/experience
+                        # questions that slipped past the main handler (e.g., "Total experience
+                        # in Full stack Engineering"). A blank answer on a required numeric
+                        # field causes LinkedIn validation errors → infinite Next loop.
+                        if ("experience" in label or "years" in label) and years_of_experience:
+                            if _label_looks_skill_specific_years(label):
+                                # For specific skills we don't know, don't just use total career years (e.g. 13).
+                                # Use a more conservative default (max 3) to be safer for newer tech.
+                                fallback_val = "3"
+                                if years_of_experience.isdigit() and int(years_of_experience) < 3:
+                                    fallback_val = years_of_experience
+                                
+                                print_lg(f'[Patch7] Unknown skill fallback (AI offline): answering "{label_org}" with conservative {fallback_val} instead of total {years_of_experience}')
+                                answer = fallback_val
+                            else:
+                                print_lg(f'[Patch7] General experience fallback: answering "{label_org}" with years_of_experience={years_of_experience}')
+                                answer = years_of_experience
+                        else:
+                            randomly_answered_questions.add((label_org, "text"))
+                            answer = ""
+                            print_lg(f'[UNANSWERED] No rule or AI for text question "{label_org}" — left blank')
                 ##<
                 text.clear()
                 text.send_keys(str(answer))
@@ -2067,7 +2317,7 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
 
     # LinkedIn / PyjamaHR often default this ON on the review step — force OFF every page.
     try:
-        follow_company(modal)
+        follow_company(None)
     except Exception as _fc_err:
         dbg(f"follow_company mid-form: {_fc_err}")
 
@@ -2138,9 +2388,10 @@ def follow_company(modal: WebElement | None = None) -> None:
         ".//label[contains(.,'Follow') and contains(.,'stay up')]/../input[@type='checkbox']",
         ".//input[@type='checkbox' and (contains(@aria-label,'Follow') or contains(@aria-label,'follow'))]",
     ]
+    # Narrow fallback: only known follow-company ids/names (broad "Follow" matched unrelated checkboxes).
     fallback_cb_xp = (
         ".//input[@type='checkbox' and ("
-        "contains(..//span, 'Follow') or contains(..//label, 'Follow') or contains(@aria-label, 'Follow')"
+        "contains(@id,'follow-company') or contains(@name,'follow-company') or @id='follow-company-checkbox'"
         ")]"
     )
 
@@ -2308,6 +2559,7 @@ def run_applications(search_terms: list[str]) -> None:
         apply_filters()
 
         current_count = 0
+        _consecutive_stale_failures = 0  # Patch 4: track stale cascades
         try:
             while current_count < switch_number:
                 # Wait until job listings are loaded
@@ -2327,6 +2579,18 @@ def run_applications(search_terms: list[str]) -> None:
 
                     job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
                     
+                    # Patch 4: Track consecutive stale failures; refresh page after 5 in a row
+                    if skip and job_id == "":
+                        _consecutive_stale_failures += 1
+                        if _consecutive_stale_failures >= 5:
+                            print_lg(f"[Patch4] {_consecutive_stale_failures} consecutive stale failures; refreshing page...")
+                            driver.refresh()
+                            sleep(3)
+                            _consecutive_stale_failures = 0
+                            break  # break inner for-loop to re-enter while and re-fetch listings
+                    else:
+                        _consecutive_stale_failures = 0
+
                     if skip: continue
                     # Redundant fail safe check for applied jobs (non-waiting -> saves ~2s per job)
                     try:
@@ -2407,11 +2671,19 @@ def run_applications(search_terms: list[str]) -> None:
 
 
                     description, experience_required, skip, reason, message = get_job_description()
-                    
+                    _rel_score: int | None = None
+
                     # --- Automated Resume Tailoring Hook ---
                     if not skip and use_AI and description != "Unknown" and master_resume_data:
                         print_lg(f"-- Evaluating job relevance for {company} | {title}")
                         relevance = ai_call('check_relevance', aiClient, description, json.dumps(master_resume_data))
+                        if isinstance(relevance, dict) and relevance.get("error") != "offline_mode":
+                            ms = relevance.get("match_score")
+                            if ms is not None:
+                                try:
+                                    _rel_score = int(float(ms))
+                                except (TypeError, ValueError):
+                                    _rel_score = None
                         if isinstance(relevance, dict) and relevance.get("error") == "offline_mode":
                             print_lg("-- OFFLINE MODE: Skipping AI relevance check; applying without filtering.")
                             relevance = {}
@@ -2430,6 +2702,27 @@ def run_applications(search_terms: list[str]) -> None:
                             score = relevance.get("match_score", 0) if isinstance(relevance, dict) else 0
                             print_lg(f"-- Match score: {score}% (Reason: {relevance.get('reasoning', 'N/A') if isinstance(relevance, dict) else 'Error'})")
                     # ---------------------------------------
+
+                    if (
+                        not skip
+                        and use_AI
+                        and description != "Unknown"
+                        and master_resume_data
+                        and _rel_score is not None
+                        and (os.environ.get("APPLYBOT_STRICT_RELEVANCE", "").strip().lower() in ("1", "true", "yes", "on"))
+                    ):
+                        try:
+                            _min_rel = int((os.environ.get("APPLYBOT_RELEVANCE_MIN_SCORE") or "70").strip())
+                        except ValueError:
+                            _min_rel = 70
+                        _min_rel = max(1, min(100, _min_rel))
+                        if _rel_score < _min_rel:
+                            skip = True
+                            reason = "Low AI relevance match"
+                            message = (
+                                f"\n{description[:800]}\n\nAI relevance match_score={_rel_score}% "
+                                f"is below APPLYBOT_RELEVANCE_MIN_SCORE ({_min_rel}%). Skipping.\n"
+                            )
 
                     if skip:
                         print_lg(message)
@@ -2453,6 +2746,7 @@ def run_applications(search_terms: list[str]) -> None:
                         ##<
 
                     uploaded = False
+                    pre_submit_skip = False
                     # Case 1: Easy Apply Button
                     if try_xp(driver, ".//button[@id='jobs-apply-button-id' or (contains(@class,'jobs-apply-button') and contains(@aria-label, 'Easy'))]"):
                         modal = None
@@ -2559,18 +2853,132 @@ def run_applications(search_terms: list[str]) -> None:
                                     modal = get_active_modal(5)
                                 except Exception:
                                     modal = None
-                                follow_company(modal)
-                                _pdump = (os.environ.get("APPLYBOT_PRE_SUBMIT_DUMP") or "").strip()
-                                if _pdump:
-                                    try:
-                                        from applybot.easy_apply_debug import append_pre_submit_dump_jsonl
+                                follow_company(None)
+                                try:
+                                    from applybot.pre_submit_verify import (
+                                        append_custom_answer_fix,
+                                        append_pre_submit_audit_jsonl,
+                                        audit_questions_list,
+                                        env_truthy,
+                                        load_profile_truth,
+                                        repo_root,
+                                        save_pre_submit_screenshots,
+                                    )
 
-                                        append_pre_submit_dump_jsonl(
-                                            _pdump, modal, str(job_id), str(job_link)
+                                    _root = repo_root()
+                                    if env_truthy("APPLYBOT_PRE_SUBMIT_SCREENSHOTS"):
+                                        try:
+                                            _ss = save_pre_submit_screenshots(
+                                                driver, modal, str(job_id), _root
+                                            )
+                                            if _ss:
+                                                print_lg(f"[pre-submit] screenshots: {_ss}")
+                                        except Exception as _ss_e:
+                                            print_lg(
+                                                f"[WARN] APPLYBOT_PRE_SUBMIT_SCREENSHOTS failed: {_ss_e}"
+                                            )
+
+                                    if env_truthy("APPLYBOT_PRE_SUBMIT_AUDIT"):
+                                        profile_truth = load_profile_truth(_root)
+                                        if profile_truth is None:
+                                            print_lg(
+                                                "[pre-submit] audit: no config/profile.json; mismatch checks skipped"
+                                            )
+                                        ar = audit_questions_list(
+                                            questions_list,
+                                            profile_truth,
+                                            str(years_of_experience),
                                         )
+                                        audit_actions: list[str] = []
+                                        strict = env_truthy(
+                                            "APPLYBOT_PRE_SUBMIT_AUDIT_STRICT"
+                                        )
+                                        auto_fix = env_truthy(
+                                            "APPLYBOT_AUTO_FIX_CUSTOM_ANSWERS"
+                                        )
+                                        if strict and ar.has_high_severity:
+                                            pre_submit_skip = True
+                                            audit_actions.append(
+                                                "skip_submit_strict_audit"
+                                            )
+                                        if (
+                                            auto_fix
+                                            and strict
+                                            and ar.has_high_severity
+                                        ):
+                                            cfg_py = _root / "config" / "custom_questions.py"
+                                            if not cfg_py.is_file():
+                                                print_lg(
+                                                    "[pre-submit] auto-fix: config/custom_questions.py missing; copy from custom_questions.example.py"
+                                                )
+                                            else:
+                                                for kw, val in ar.suggested_fixes:
+                                                    if append_custom_answer_fix(
+                                                        cfg_py, kw, val
+                                                    ):
+                                                        audit_actions.append(
+                                                            f"custom_answers:{kw}"
+                                                        )
+                                        _audit_log = (
+                                            os.environ.get(
+                                                "APPLYBOT_PRE_SUBMIT_AUDIT_JSONL"
+                                            )
+                                            or ""
+                                        ).strip() or str(
+                                            _root / "logs" / "pre_submit_audit.jsonl"
+                                        )
+                                        append_pre_submit_audit_jsonl(
+                                            _audit_log,
+                                            str(job_id),
+                                            str(job_link),
+                                            {
+                                                "mismatches": ar.mismatches,
+                                                "has_high_severity": ar.has_high_severity,
+                                                "actions_taken": audit_actions,
+                                            },
+                                        )
+                                except Exception as _pre_e:
+                                    print_lg(f"[WARN] pre-submit verify: {_pre_e}")
+
+                                _pdump = (os.environ.get("APPLYBOT_PRE_SUBMIT_DUMP") or "").strip()
+                                _qa_only = (os.environ.get("APPLYBOT_SUBMITTED_QA_JSONL") or "").strip()
+                                if _pdump or _qa_only:
+                                    try:
+                                        from applybot.easy_apply_debug import (
+                                            append_pre_submit_dump_jsonl,
+                                            append_submitted_qa_jsonl,
+                                            questions_list_to_snapshot,
+                                        )
+
+                                        _snap = questions_list_to_snapshot(questions_list)
+                                        if _pdump:
+                                            try:
+                                                modal = get_active_modal(5)
+                                            except Exception:
+                                                pass
+                                            append_pre_submit_dump_jsonl(
+                                                _pdump,
+                                                modal,
+                                                str(job_id),
+                                                str(job_link),
+                                                questions_snapshot=_snap,
+                                                driver=driver,
+                                            )
+                                        if _qa_only:
+                                            append_submitted_qa_jsonl(
+                                                _qa_only,
+                                                str(job_id),
+                                                str(job_link),
+                                                _snap,
+                                            )
                                     except Exception as _dump_e:
-                                        print_lg(f"[WARN] APPLYBOT_PRE_SUBMIT_DUMP failed: {_dump_e}")
-                                if _click_submit_easy_apply_final():
+                                        print_lg(f"[WARN] APPLYBOT_PRE_SUBMIT_DUMP / QA JSONL failed: {_dump_e}")
+                                if pre_submit_skip:
+                                    print_lg(
+                                        "[pre-submit] Strict audit: skipping submit; discarding application."
+                                    )
+                                    discard_job()
+                                elif _click_submit_easy_apply_final():
                                     date_applied = datetime.now()
                                     if not wait_span_click(driver, "Done", 2, silent=True):
                                         actions.send_keys(Keys.ESCAPE).perform()
@@ -2600,6 +3008,14 @@ def run_applications(search_terms: list[str]) -> None:
                         rejected_jobs.add(job_id)
                         continue
 
+                    if pre_submit_skip:
+                        print_lg(
+                            f'[pre-submit] Skipped submit for "{title} | {company}" (strict audit). Job ID: {job_id}'
+                        )
+                        rejected_jobs.add(job_id)
+                        skip_count += 1
+                        continue
+
                     submitted_jobs(job_id, title, company, work_location, work_style, description, experience_required, skills, hr_name, hr_link, resume, reposted, date_listed, date_applied, job_link, application_link, questions_list, connect_request)
                     if uploaded:   useNewResume = False
 
@@ -2621,12 +3037,32 @@ def run_applications(search_terms: list[str]) -> None:
 
 
 
-                # Switching to next page
+                # Switching to next page (Patch 5: dismiss lingering modal before click)
                 if pagination_element == None:
                     print_lg("Couldn't find pagination element, probably at the end page of results!")
                     break
                 try:
-                    pagination_element.find_element(By.XPATH, f"//button[@aria-label='Page {current_page+1}']").click()
+                    next_page_btn = pagination_element.find_element(By.XPATH, f"//button[@aria-label='Page {current_page+1}']")
+                    try:
+                        next_page_btn.click()
+                    except ElementClickInterceptedException:
+                        # Modal overlay still present — dismiss it, then retry
+                        print_lg("[WARN] Pagination blocked by modal overlay; dismissing…")
+                        try:
+                            actions.send_keys(Keys.ESCAPE).perform()
+                            sleep(1)
+                            wait_span_click(driver, 'Discard', 1, silent=True)
+                            sleep(0.5)
+                        except Exception:
+                            pass
+                        try:
+                            next_page_btn = driver.find_element(
+                                By.XPATH, f"//button[@aria-label='Page {current_page+1}']"
+                            )
+                            driver.execute_script("arguments[0].click();", next_page_btn)
+                        except Exception as js_err:
+                            print_lg(f"[WARN] JS click on Page {current_page+1} also failed: {js_err}")
+                            break
                     print_lg(f"\n>-> Now on Page {current_page+1} \n")
                 except NoSuchElementException:
                     print_lg(f"\n>-> Didn't find Page {current_page+1}. Probably at the end page of results!\n")
@@ -2687,6 +3123,30 @@ def run(total_runs: int) -> int:
 chatGPT_tab = False
 linkedIn_tab = False
 
+
+def _warn_incomplete_ai_credentials() -> None:
+    """Log once when AI is enabled but the active provider has no API key (offline fallbacks)."""
+    if not use_AI:
+        return
+    try:
+        import config.secrets as _sec
+    except ImportError:
+        return
+    ap = (getattr(_sec, "ai_provider", "") or "").strip().lower()
+    if ap == "gemini":
+        if not str(getattr(_sec, "GEMINI_API_KEY", "") or "").strip():
+            print_lg(
+                "[WARN] use_AI is True but GEMINI_API_KEY is empty; relevance and Q&A use offline fallbacks."
+            )
+    elif ap == "openai":
+        ok = str(getattr(_sec, "OPENAI_API_KEY", "") or "").strip()
+        lk = str(getattr(_sec, "llm_api_key", "") or "").strip()
+        if not ok and not lk:
+            print_lg(
+                "[WARN] use_AI is True but OpenAI API keys are empty; AI calls use offline fallbacks."
+            )
+
+
 def main() -> None:
     total_runs = 1
     
@@ -2698,7 +3158,8 @@ def main() -> None:
         global linkedIn_tab, tabs_count, useNewResume, aiClient
         alert_title = "Error Occurred. Closing Browser!"
         validate_config()
-        
+        _warn_incomplete_ai_credentials()
+
         if not os.path.exists(default_resume_path):
             smart_alert(text='Your default resume "{}" is missing! Please update it\'s folder path "default_resume_path" in config.py\n\nOR\n\nAdd a resume with exact name and path (check for spelling mistakes including cases).\n\n\nFor now the bot will continue using your previous upload from LinkedIn!'.format(default_resume_path), title="Missing Resume", button="OK")
             useNewResume = False

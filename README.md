@@ -62,7 +62,7 @@ After configuration (wizard or manual), start the bot:
 ./venv/bin/python runAiBot.py
 ```
 
-That opens Chrome/Chromium and applies using `config/`. Login, logs, filters, and CLI flags: **[docs/RUN.md](docs/RUN.md)**. Optional live LinkedIn regression (pytest, pre-submit dumps): **[docs/RUN.md §7](docs/RUN.md#7-live-e2e-optional-regression)**.
+That opens Chrome/Chromium and applies using `config/`. Login, logs, filters, and CLI flags: **[docs/RUN.md](docs/RUN.md)**. Optional **`MAX_APPLIED_JOBS`**, pre-submit screenshots, JSONL dump/audit, and strict skip: **[docs/RUN.md §6](docs/RUN.md#6-run-the-bot-easy-apply)** (subsection *Pre-submit evidence and audit*). Live LinkedIn regression (pytest): **[docs/RUN.md §7](docs/RUN.md#7-live-e2e-optional-regression)**.
 
 ---
 

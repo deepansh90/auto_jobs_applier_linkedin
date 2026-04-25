@@ -230,7 +230,14 @@ def ai_answer_question(
     print_lg("-- ANSWERING QUESTION using AI")
     try:
         prompt = ai_answer_prompt.format(user_information_all or "N/A", question)
-         # Append optional details if provided
+        if options and question_type in ("single_select", "multiple_select"):
+            options_str = "OPTIONS:\n" + "\n".join(f"- {option}" for option in options)
+            prompt += f"\n\n{options_str}"
+            if question_type == "single_select":
+                prompt += "\n\nReply with exactly ONE option line from the list above (the option text only)."
+            else:
+                prompt += "\n\nReply with one or more option lines from the list above."
+        # Append optional details if provided
         if job_description and job_description != "Unknown":
             prompt += f"\nJob Description:\n{job_description}"
         if about_company and about_company != "Unknown":

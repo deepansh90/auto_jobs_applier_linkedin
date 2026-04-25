@@ -109,6 +109,49 @@ The bot will:
 3. For each matching job: evaluate relevance (AI), click Easy Apply, answer questions, upload resume, submit.
 4. Stop after `max_applied_jobs` successful submissions (see `config/settings.py`).
 
+### AI relevance: skip low-fit jobs (optional)
+
+The bot already calls **`check_relevance`** when `use_AI` is on and a job description is available. By default, scores below **85** only disable **tailored resume**; Easy Apply can still run.
+
+| Environment variable | Behavior |
+|------------------------|----------|
+| `APPLYBOT_STRICT_RELEVANCE=1` | If AI returns a parseable **`match_score`** and it is **strictly below** the minimum, the job is skipped (same `skip` path as other filters—no Easy Apply). Truthy values: `1`, `true`, `yes`, `on` (case-insensitive). |
+| `APPLYBOT_RELEVANCE_MIN_SCORE` | Integer **1–100**, default **70**. Jobs with `match_score` below this value are skipped when strict mode is on. |
+
+**Offline / errors:** Offline relevance, API error responses, or missing `match_score` leave no score to compare—strict mode does **not** skip in those cases.
+
+### Pre-submit evidence and audit (optional)
+
+Use this for a **verification pass** (for example cap applies at **20** without editing `config/settings.py`) and to capture what the form contains right before **Submit application**.
+
+**Cap applies for one run** — the process reads `MAX_APPLIED_JOBS` at startup and overrides `max_applied_jobs`:
+
+```bash
+MAX_APPLIED_JOBS=20 ./venv/bin/python runAiBot.py
+```
+
+For the first manual check, set **`pause_before_submit = True`** in `config/questions.py` (or your overlay) so the bot pauses on the final screen; combine with the env vars below.
+
+| Environment variable | Behavior |
+|------------------------|----------|
+| `APPLYBOT_PRE_SUBMIT_SCREENSHOTS=1` | After **Follow** (company) and before submit: full-page screenshot under `history/screenshots/pre_submit/`, plus a modal screenshot when the browser supports it. |
+| `APPLYBOT_PRE_SUBMIT_DUMP` | Path to a JSONL file: one line per job with **`questions`** (what the bot filled from `questions_list`, source of truth) plus **`fields`** (DOM snapshot; if empty, the bot also probes `.jobs-easy-apply-modal` / `.artdeco-modal` on the driver). |
+| `APPLYBOT_SUBMITTED_QA_JSONL` | Optional second path: append **only** `{ts, job_id, job_link, questions}` per job (no DOM) for easy grepping. |
+| `APPLYBOT_PRE_SUBMIT_AUDIT=1` | Compare filled answers to `config/profile.json`: **skill + years** (conservative), plus light **email / phone / first name** substring checks. Without `profile.json`, mismatch checks are skipped (a log line is printed). |
+| `APPLYBOT_PRE_SUBMIT_AUDIT_JSONL` | Optional path for audit JSONL (default: `logs/pre_submit_audit.jsonl` under the repo root). Each line includes `mismatches`, `has_high_severity`, and `actions_taken`. |
+| `APPLYBOT_PRE_SUBMIT_AUDIT_STRICT=1` | If the audit finds a **high-severity** mismatch (skill/years only today), **skip submit**, write dump/screenshots if enabled, call **Discard**, and move on (job is not logged as submitted). Low-severity rows (email, etc.) are logged but do not trigger strict skip. |
+| `APPLYBOT_AUTO_FIX_CUSTOM_ANSWERS=1` | With **strict** audit and a high-severity mismatch, merge suggested `(keyword, years)` pairs into **`config/custom_questions.py`** only (never `questions.py` / `answers.py`). Requires that file to exist (copy from `config/custom_questions.example.py`). |
+
+**Important:** Updating `custom_answers` does **not** reload the in-memory map for the current modal; fixes apply from the **next** job onward unless you add a refill step later.
+
+Screenshots and JSONL can contain **PII**; paths are under gitignored `history/` / `logs/` — do not commit them.
+
+**Security / exports:** Never commit `config/secrets.py`. When creating a zip or archive, exclude it (e.g. `zip -r repo.zip . -x 'config/secrets.py'`). Prefer environment variables for credentials; see comments in `config/secrets.example.py`.
+
+**AI keys:** If `use_AI` is `True` but your Gemini/OpenAI key is empty, the bot logs a **startup warning** and runs in offline fallbacks—set real keys in `secrets.py` or env (`GEMINI_API_KEY`, etc.).
+
+**Native `<select>` questions:** After keyword/fuzzy matching fails, the bot can call **AI with the visible option list** (`single_select`) before falling back to a random option. OpenAI and Gemini prompts both include the option list when `use_AI` is on.
+
 ## 7. Live E2E (optional regression)
 
 Opt-in only (`RUN_LINKEDIN_E2E=1`). Runs the real browser against LinkedIn and asserts the applications CSV grew by at least **5** rows by default (`LINKEDIN_E2E_MIN_APPLIES` / `MAX_APPLIED_JOBS`). Uses `APPLYBOT_HEADLESS_UI=1` so dialogs do not block on stdin.

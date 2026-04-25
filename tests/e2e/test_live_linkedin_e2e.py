@@ -131,4 +131,5 @@ def test_live_linkedin_at_least_min_new_applications_in_csv() -> None:
 
         _assert_pre_submit_dumps(dump_path, min_new)
     finally:
-        dump_path.unlink(missing_ok=True)
+        if os.environ.get("APPLYBOT_E2E_KEEP_DUMP", "").strip() != "1":
+            dump_path.unlink(missing_ok=True)
