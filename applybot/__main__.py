@@ -1896,12 +1896,23 @@ def _ai_answer_select_label(
 # Function to answer the questions for Easy Apply
 def _label_looks_skill_specific_years(label_lower: str) -> bool:
     """True when the label asks for years in a named skill/domain (not total career YOE)."""
-    if any(x in label_lower for x in ["total", "overall", "relevant", "work experience"]):
+    if any(x in label_lower for x in ["total", "overall", "relevant"]):
         return False
-    # If it has "in [skill]", "with [skill]", or bracketed info
-    return bool(re.search(r"\bin\s+[a-z0-9+#.\-]{2,}\b", label_lower)) or \
-           bool(re.search(r"\bwith\s+[a-z0-9+#.\-]{2,}\b", label_lower)) or \
-           "(" in label_lower
+        
+    # If it has "in [skill]", "with [skill]"
+    # Exclude common temporal units that aren't skills
+    if bool(re.search(r"\bin\s+(?!years\b|months\b|days\b)[a-z0-9+#.\-]{2,}\b", label_lower)) or \
+       bool(re.search(r"\bwith\s+[a-z0-9+#.\-]{2,}\b", label_lower)):
+        return True
+        
+    # Check for bracketed info like "(node.js)" but ignore common non-skill parentheses
+    if "(" in label_lower:
+        if any(x in label_lower for x in ["(in years)", "(optional)", "(e.g.", "(in lacs)", "(in days)", "(in months)"]):
+            pass # ignore common unit/instruction parentheses
+        else:
+            return True
+            
+    return False
 
 
 def _radio_answer_for_label_match(answer: str | None) -> str:
@@ -2265,10 +2276,21 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                         answer = ai_answer
                         print_lg(f'AI Answered received for question "{label_org}" \nhere is answer: "{answer}"')
                     else:
-                        # Offline fallback: reuse the bio instead of leaving the field blank,
-                        # which otherwise blocks Submit on required textareas.
-                        answer = user_information_all or linkedin_summary or ""
-                        randomly_answered_questions.add((label_org, "textarea"))
+                        if ("experience" in label or "years" in label) and years_of_experience:
+                            if _label_looks_skill_specific_years(label):
+                                fallback_val = "3"
+                                if years_of_experience.isdigit() and int(years_of_experience) < 3:
+                                    fallback_val = years_of_experience
+                                print_lg(f'[Patch7] Unknown skill fallback (AI offline): answering "{label_org}" textarea with conservative {fallback_val} instead of total {years_of_experience}')
+                                answer = fallback_val
+                            else:
+                                print_lg(f'[Patch7] General experience fallback: answering "{label_org}" textarea with years_of_experience={years_of_experience}')
+                                answer = years_of_experience
+                        else:
+                            # Offline fallback: reuse the bio instead of leaving the field blank,
+                            # which otherwise blocks Submit on required textareas.
+                            answer = user_information_all or linkedin_summary or ""
+                            randomly_answered_questions.add((label_org, "textarea"))
 
             text_area.clear()
             text_area.send_keys(str(answer))
@@ -2770,7 +2792,12 @@ def run_applications(search_terms: list[str]) -> None:
                                 next_button = True
                                 questions_list = set()
                                 next_counter = 0
+                                job_start_time = time.time()
                                 while next_button:
+                                    if time.time() - job_start_time > 120:
+                                        screenshot_name = screenshot(driver, job_id, "Timeout exceeded")
+                                        errored = "timeout"
+                                        raise Exception("Job application took more than 2 minutes. Discarding...")
                                     next_counter += 1
                                     if next_counter >= 15: 
                                         if pause_at_failed_question:
