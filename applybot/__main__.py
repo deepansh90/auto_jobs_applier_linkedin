@@ -2075,6 +2075,18 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                                 foundOption = True
                                 break
                     if not foundOption:
+                        try:
+                            from rapidfuzz import fuzz
+                            scored = [(o, fuzz.token_sort_ratio(str(answer).lower(), o.lower())) for o in optionsText]
+                            best_opt, best_score = max(scored, key=lambda x: x[1])
+                            if best_score >= 65:
+                                select.select_by_visible_text(best_opt)
+                                answer = best_opt
+                                foundOption = True
+                                print_lg(f"[INFO] Fuzzy matched '{best_opt}' (score: {best_score:.1f}) for dropdown '{label_org}'")
+                        except Exception as e:
+                            print_lg(f"[WARN] Fuzzy match failed: {e}")
+                    if not foundOption:
                         ai_pick = _ai_answer_select_label(label_org, optionsText, job_description)
                         if ai_pick:
                             try:
@@ -2085,8 +2097,12 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                             except NoSuchElementException:
                                 foundOption = False
                     if not foundOption:
-                        print_lg(f"[WARN] No match for dropdown '{label_org}' — leaving as placeholder (first option)")
-                        randomly_answered_questions.add((f'{label_org} [ {optionsText} ]', "select — NOT ANSWERED"))
+                        n_opts = len(select.options)
+                        if n_opts > 1:
+                            select.select_by_index(1)
+                            answer = select.first_selected_option.text
+                        print_lg(f"[WARN] No match for dropdown '{label_org}', defaulting to first available option: '{answer}'")
+                        randomly_answered_questions.add((f'{label_org} [ {optionsText} ]', "select — FALLBACK (index 1)"))
             # Patch 1B + 2B: Record actual post-interaction value, not uninitialised default.
             # When the answer block was skipped (prev was already set), use prev_answer.
             # When the answer block ran, re-read the actual selection for accuracy.
@@ -2748,8 +2764,7 @@ def run_applications(search_terms: list[str]) -> None:
                     # Calculation of date posted
                     try:
                         # try: time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
-                        # except Exception as e:
-     print_lg(f"[ERROR] Caught Exception: {e}") 
+                        # except: pass
                         time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
                         print("Time Posted: " + time_posted_text)
                         if time_posted_text.__contains__("Reposted"):
@@ -2774,6 +2789,15 @@ def run_applications(search_terms: list[str]) -> None:
                                     _rel_score = int(float(ms))
                                 except (TypeError, ValueError):
                                     _rel_score = None
+                            
+                            from config.settings import min_job_relevance_score
+                            if _rel_score is not None and _rel_score < min_job_relevance_score:
+                                print_lg(f"  [SKIP] Relevance score ({_rel_score}%) is below minimum threshold ({min_job_relevance_score}%).")
+                                skip = True
+                                skip_count += 1
+                                failed_job(job_id, job_link, resume, date_listed, f"Low Relevance Score ({_rel_score}%)", "Skipped due to threshold", "Skipped", screenshot_name)
+                                continue
+
                         if isinstance(relevance, dict) and relevance.get("error") == "offline_mode":
                             print_lg("-- OFFLINE MODE: Skipping AI relevance check; applying without filtering.")
                             relevance = {}

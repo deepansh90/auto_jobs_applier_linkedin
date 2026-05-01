@@ -12,3 +12,4 @@ pypdf>=4.0.0
 Flask>=2.3,<3
 flask-cors
 pytest>=8.0.0
+rapidfuzz>=3.0.0

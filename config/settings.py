@@ -47,7 +47,7 @@ chromium_binary_path = ""          # Example: "/Applications/Chromium.app/Conten
 # unchecked regardless of this flag (automation policy). Kept for config compatibility.
 follow_companies = False           # True or False, Note: True or False are case-sensitive
 
-max_applied_jobs = 3               # Maximum Easy Apply submissions per run (see logs/ and logs/screenshots/)
+max_applied_jobs = 10               # Maximum Easy Apply submissions per run (see logs/ and logs/screenshots/)
 randomize_wait_times = True        # Enable human-like randomized delays between actions
 
 # Pause after search for manual review
@@ -64,5 +64,7 @@ debugger_port = 9222
 
 # Do you want to see AI-related error alerts?
 showAiErrorAlerts = True           # True or False
+
+min_job_relevance_score = 60       # Minimum AI match score to apply to a job
 
 ############################################################################################################

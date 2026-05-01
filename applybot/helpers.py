@@ -173,6 +173,16 @@ def find_default_profile_directory() -> str | None:
 
 
 #< Logging related
+def log_event(action: str, status: str, job_id=None, field=None, reason=None):
+    entry = {"ts": datetime.now().isoformat(), "action": action, "status": status,
+             "job_id": job_id, "field": field, "reason": reason}
+    try:
+        os.makedirs(logs_folder_path, exist_ok=True)
+        with open(os.path.join(logs_folder_path, "audit.jsonl"), "a") as f: 
+            f.write(json.dumps(entry) + "\n")
+    except:
+        pass
+
 def critical_error_log(possible_reason: str, stack_trace: Exception) -> None:
     '''
     Function to log and print critical errors along with datetime stamp
