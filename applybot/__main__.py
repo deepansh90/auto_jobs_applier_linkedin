@@ -2969,15 +2969,19 @@ def run_applications(search_terms: list[str]) -> None:
                                     print("\n\n" + "\n".join(str(question) for question in questions_list) + "\n\n")
                                 # Optional step: many Easy Apply flows skip Review and go straight to Submit.
                                 wait_span_click(driver, "Review", 1, scrollTop=True, silent=True)
-                                cur_pause_before_submit = pause_before_submit
+                                from config.settings import confirm_first_n_applications
+                                cur_pause_before_submit = pause_before_submit or (easy_applied_count < confirm_first_n_applications)
                                 if errored != "stuck" and cur_pause_before_submit:
                                     if LEARNING_MODE:
                                         print_lg("--- LEARNING MODE: Skipping Submit and Closing Browser ---")
                                         save_questions_to_custom_config(questions_list)
                                         raise Exception("Learning mode: Skipping submission and discarding job.")
-                                    decision = smart_confirm('1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n\n\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information", ["Disable Pause", "Discard Application", "Submit Application"])
+                                    msg = "Please review the application and click 'OK' to submit."
+                                    if easy_applied_count < confirm_first_n_applications:
+                                        msg = f"SAFETY GATE: Review application {easy_applied_count + 1} of {confirm_first_n_applications}."
+                                    decision = smart_confirm(f'1. Please verify your information.\n2. If you edited something, please return to this final screen.\n3. DO NOT CLICK "Submit Application".\n\n{msg}\n\nYou can turn off "Pause before submit" setting in config.py\nTo TEMPORARILY disable pausing, click "Disable Pause"', "Confirm your information", ["Disable Pause", "Discard Application", "Submit Application"])
                                     if decision == "Discard Application": raise Exception("Job application discarded by user!")
-                                    pause_before_submit = False if "Disable Pause" == decision else True
+                                    pause_before_submit = False if "Disable Pause" == decision else pause_before_submit
                                     # try_xp(modal, ".//span[normalize-space(.)='Review']")
                                 try:
                                     modal = get_active_modal(5)
