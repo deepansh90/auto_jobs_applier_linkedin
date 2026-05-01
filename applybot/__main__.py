@@ -353,19 +353,20 @@ if use_AI:
         the calling code can fall back to config values without crashing on
         ``text.send_keys({...})``.
         '''
+    def ai_text_answer(method_name: str, *args, fallback: str = "", **kwargs) -> str:
         try:
             result = ai_call(method_name, *args, **kwargs)
         except Exception as e:
             print_lg(f"[AI] {method_name} raised: {e}")
-            return ""
+            return fallback
         if isinstance(result, dict):
-            return ""
+            return fallback
         if isinstance(result, str):
             return result
-        return ""
+        return fallback
 else:
-    def ai_text_answer(method_name: str, *args, **kwargs) -> str:
-        return ""
+    def ai_text_answer(method_name: str, *args, fallback: str = "", **kwargs) -> str:
+        return fallback
 
 from typing import Literal
 
@@ -941,7 +942,9 @@ def set_search_location() -> None:
                 actions.send_keys(search_location.strip()).perform()
                 sleep(2)
                 actions.send_keys(Keys.ENTER).perform()
-            except:
+            except Exception as e:
+
+                print_lg(f"[ERROR] Caught Exception: {e}")
                 print_lg("Failed to update search location, continuing with default location!", e)
             try_xp(driver, ".//button[@aria-label='Cancel']")
 
@@ -983,7 +986,10 @@ def ensure_classic_search() -> None:
             try:
                 driver.execute_script("arguments[0].click();", ai_beta_btn)
                 sleep(2)
-            except:
+            except Exception as e:
+
+                print_lg(f"[ERROR] Ignored Exception: {e}")
+
                 pass
             
             # Precise switch back link based on subagent findings (Retrying multiple times)
@@ -1002,7 +1008,9 @@ def ensure_classic_search() -> None:
                         print_lg("Successfully requested classic search mode via UI.")
                         sleep(5) # Wait for reload
                         return
-                    except:
+                    except Exception as e:
+
+                        print_lg(f"[ERROR] Caught Exception: {e}")
                         continue
                 sleep(2) # Wait a bit before second retry
                 
@@ -1138,7 +1146,9 @@ def apply_filters() -> None:
                 button.click()
                 applied = True
                 break
-            except:
+            except Exception as e:
+
+                print_lg(f"[ERROR] Caught Exception: {e}")
                 continue
         
         # Fallback for AI-Beta layout: Click individual pills if "All filters" is missing
@@ -1197,14 +1207,18 @@ def apply_filters() -> None:
 
         try:
             show_results_button: WebElement = driver.find_element(By.XPATH, '//button[contains(normalize-space(.), "results")]')
-        except:
+        except Exception as e:
+
+            print_lg(f"[ERROR] Caught Exception: {e}")
             show_results_button: WebElement = driver.find_element(By.XPATH, '//button[contains(translate(@aria-label, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "apply current filters to show")]')
         
         scroll_to_view(driver, show_results_button)
         buffer(1) # Allow UI to settle
         try:
             show_results_button.click()
-        except:
+        except Exception as e:
+
+            print_lg(f"[ERROR] Caught Exception: {e}")
             driver.execute_script("arguments[0].click();", show_results_button)
 
         global pause_after_filters
@@ -1279,7 +1293,11 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
             if job.find_element(By.CLASS_NAME, "job-card-container__footer-job-state").text == "Applied":
                 skip = True
                 print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
-        except: pass
+        except Exception as e:
+
+            print_lg(f"[ERROR] Ignored Exception: {e}")
+
+            pass
         try: 
             if not skip: 
                 # Try clicking via JS as click() is sometimes intercepted
@@ -1309,7 +1327,9 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
         try:
             job_id = job.get_dom_attribute('data-occludable-job-id')
             print_lg(f"Error fetching main details for Job ID {job_id}: {str(e)[:100]}")
-        except:
+        except Exception as e:
+
+            print_lg(f"[ERROR] Caught Exception: {e}")
             print_lg(f"Error fetching main details for a job (stale or missing): {str(e)[:100]}")
         return ("", "", "", "", "", True)
 
@@ -1756,13 +1776,19 @@ def _reinit_browser_with_retry(max_attempts: int = 3, pause_s: float = 5.0) -> t
                 sleep(pause_s)
     raise last_err if last_err else RuntimeError("Re-init failed with no captured exception")
 
-
 # Function to upload resume
 def upload_resume(modal: WebElement, resume: str) -> tuple[bool, str]:
     try:
+        basename = os.path.basename(resume)
         modal.find_element(By.NAME, "file").send_keys(os.path.abspath(resume))
-        return True, os.path.basename(default_resume_path)
-    except: return False, "Previous resume"
+        try:
+            WebDriverWait(driver, 10).until(lambda d: basename in modal.find_element(By.XPATH, "//*[contains(@class,'upload')]").text)
+        except Exception as e:
+            print_lg(f"[WARN] Resume upload may have failed — '{basename}' not confirmed in UI")
+        return True, basename
+    except Exception as e:
+        print_lg(f"[ERROR] Caught Exception: {e}")
+        return False, "Previous resume"
 
 # Function to check for custom answers from configuration
 def get_custom_answer(label: str) -> str | None:
@@ -1946,7 +1972,11 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
             try:
                 label = Question.find_element(By.TAG_NAME, "label")
                 label_org = label.find_element(By.TAG_NAME, "span").text
-            except: pass
+            except Exception as e:
+
+                print_lg(f"[ERROR] Ignored Exception: {e}")
+
+                pass
             answer = 'Yes'
             label = label_org.lower()
             select = Select(select)
@@ -2055,14 +2085,8 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                             except NoSuchElementException:
                                 foundOption = False
                     if not foundOption:
-                        print_lg(
-                            f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!'
-                        )
-                        n_opts = len(select.options)
-                        if n_opts > 1:
-                            select.select_by_index(randint(1, n_opts - 1))
-                            answer = select.first_selected_option.text
-                        randomly_answered_questions.add((f'{label_org} [ {options} ]', "select"))
+                        print_lg(f"[WARN] No match for dropdown '{label_org}' — leaving as placeholder (first option)")
+                        randomly_answered_questions.add((f'{label_org} [ {optionsText} ]', "select — NOT ANSWERED"))
             # Patch 1B + 2B: Record actual post-interaction value, not uninitialised default.
             # When the answer block was skipped (prev was already set), use prev_answer.
             # When the answer block ran, re-read the actual selection for accuracy.
@@ -2082,7 +2106,11 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
             prev_answer = None
             label = try_xp(radio, './/span[@data-test-form-builder-radio-button-form-component__title]', False)
             try: label = find_by_class(label, "visually-hidden", 2.0)
-            except: pass
+            except Exception as e:
+
+                print_lg(f"[ERROR] Ignored Exception: {e}")
+
+                pass
             label_org = label.text if label else "Unknown"
             answer = 'Yes'
             label = label_org.lower()
@@ -2153,7 +2181,11 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
             do_actions = False
             label = try_xp(Question, ".//label[@for]", False)
             try: label = label.find_element(By.CLASS_NAME,'visually-hidden')
-            except: pass
+            except Exception as e:
+
+                print_lg(f"[ERROR] Ignored Exception: {e}")
+
+                pass
             label_org = label.text if label else "Unknown"
             answer = "" # years_of_experience
             label = label_org.lower()
@@ -2246,8 +2278,14 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                             answer = ""
                             print_lg(f'[UNANSWERED] No rule or AI for text question "{label_org}" — left blank')
                 ##<
+                mn, mx = text.get_attribute("min"), text.get_attribute("max")
+                if mn and str(answer).lstrip("-").isdigit() and int(answer) < int(mn): answer = mn
+                if mx and str(answer).lstrip("-").isdigit() and int(answer) > int(mx): answer = mx
                 text.clear()
                 text.send_keys(str(answer))
+                actual = text.get_attribute("value")
+                if actual and actual.strip() != str(answer).strip():
+                    print_lg(f"[WARN] Field rejected input — sent: '{answer}', got: '{actual}'")
                 if do_actions:
                     commit_typeahead_choice(modal, text, str(answer), label_org)
             questions_list.add((label, text.get_attribute("value"), "text", prev_answer))
@@ -2302,6 +2340,21 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
             ##<
             continue
 
+        # Check if it's a date question
+        date_inputs = Question.find_elements(By.XPATH, ".//input[@type='date']")
+        if date_inputs:
+            from datetime import timedelta, date
+            try:
+                notice = int(notice_period)
+            except:
+                notice = 30
+            start = (date.today() + timedelta(days=notice)).strftime("%Y-%m-%d")
+            date_inputs[0].send_keys(start)
+            label = try_xp(Question, ".//span[@class='visually-hidden']", False)
+            label_org = label.text if label else "Unknown date field"
+            questions_list.add((label_org, start, "date", None))
+            continue
+
         # Check if it's a checkbox question
         checkbox = try_xp(Question, ".//input[@type='checkbox']", False)
         if checkbox:
@@ -2326,7 +2379,14 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
             answer = answer.text if answer else "Unknown"
             prev_answer = checkbox.is_selected()
             checked = prev_answer
-            if not prev_answer:
+            
+            def should_check(lbl: str) -> bool:
+                l = lbl.lower()
+                if any(k in l for k in ["background check", "drug test", "terms", "authorize", "agree", "consent"]): return True
+                if any(k in l for k in ["marketing", "newsletter", "promotional", "unemployed", "follow"]): return False
+                return True
+
+            if not prev_answer and should_check(label_org):
                 try:
                     actions.move_to_element(checkbox).click().perform()
                     checked = True
@@ -2363,7 +2423,11 @@ def external_apply(pagination_element: WebElement, job_id: str, job_link: str, r
     if easy_apply_only:
         try:
             if "exceeded the daily application limit" in driver.find_element(By.CLASS_NAME, "artdeco-inline-feedback__message").text: dailyEasyApplyLimitReached = True
-        except: pass
+        except Exception as e:
+
+            print_lg(f"[ERROR] Ignored Exception: {e}")
+
+            pass
         print_lg("Easy apply failed I guess!")
         if pagination_element != None: return True, application_link, tabs_count
     try:
@@ -2601,6 +2665,9 @@ def run_applications(search_terms: list[str]) -> None:
 
                     job_id,title,company,work_location,work_style,skip = get_job_main_details(job, blacklisted_companies, rejected_jobs)
                     
+                    if not skip:
+                        print_lg(f"\n[{current_count + 1}/{switch_number}] {title} @ {company}  |  {work_location}")
+                    
                     # Patch 4: Track consecutive stale failures; refresh page after 5 in a row
                     if skip and job_id == "":
                         _consecutive_stale_failures += 1
@@ -2681,7 +2748,8 @@ def run_applications(search_terms: list[str]) -> None:
                     # Calculation of date posted
                     try:
                         # try: time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
-                        # except: 
+                        # except Exception as e:
+     print_lg(f"[ERROR] Caught Exception: {e}") 
                         time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
                         print("Time Posted: " + time_posted_text)
                         if time_posted_text.__contains__("Reposted"):
@@ -2819,6 +2887,17 @@ def run_applications(search_terms: list[str]) -> None:
                                         break
                                     questions_list = fill_easy_apply_form(modal, questions_list, work_location, job_description=description)
                                     if useNewResume and not uploaded: uploaded, resume = upload_resume(modal, default_resume_path)
+
+                                    # Check for validation errors before trying to click Next
+                                    errors = modal.find_elements(By.XPATH, ".//*[@role='alert' and not(contains(@style,'display:none'))]")
+                                    if errors:
+                                        visible_errors = [x for x in errors if x.is_displayed()]
+                                        if visible_errors:
+                                            for e in visible_errors:
+                                                print_lg(f"[FORM ERROR] {e.text} — retrying field before Next")
+                                            sleep(1)
+                                            next_counter += 1
+                                            continue
 
                                     # Find + click Next/Review/Submit with a bounded retry on
                                     # StaleElementReferenceException. Up to 3 attempts, 1s apart.
