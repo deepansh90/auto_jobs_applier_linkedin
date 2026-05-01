@@ -1614,20 +1614,24 @@ def commit_typeahead_choice(
 def get_active_modal(timeout: float = 5.0) -> WebElement:
     '''
     Always return the currently-live Easy Apply modal WebElement.
-
-    LinkedIn re-renders the modal DOM between Next/Review/Submit steps, so any
-    cached reference from a previous step is `StaleElementReferenceException`
-    the moment you touch it. Call this at the top of every iteration instead
-    of caching.
+    Handles StaleElementReferenceException by retrying up to 3 times.
     '''
-    try:
-        return WebDriverWait(driver, timeout).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, ".jobs-easy-apply-modal, .artdeco-modal"))
-        )
-    except Exception:
-        return WebDriverWait(driver, timeout).until(
-            EC.visibility_of_element_located((By.XPATH, "//div[contains(@class, 'modal')]//button[contains(@aria-label, 'Dismiss')]/../.."))
-        )
+    for attempt in range(3):
+        try:
+            try:
+                return WebDriverWait(driver, timeout).until(
+                    EC.visibility_of_element_located((By.CSS_SELECTOR, ".jobs-easy-apply-modal, .artdeco-modal"))
+                )
+            except Exception:
+                return WebDriverWait(driver, timeout).until(
+                    EC.visibility_of_element_located((By.XPATH, "//div[contains(@class, 'modal')]//button[contains(@aria-label, 'Dismiss')]/../.."))
+                )
+        except StaleElementReferenceException:
+            if attempt == 2: raise
+            sleep(1)
+        except Exception as e:
+            if attempt == 2: raise e
+            sleep(1)
 
 
 def _find_next_or_review_or_submit(modal: WebElement) -> WebElement:
@@ -1697,7 +1701,7 @@ def _click_submit_easy_apply_final() -> bool:
         btns = modal.find_elements(By.TAG_NAME, "button")
         for b in btns:
             txt = (b.text or b.get_attribute("aria-label") or "").lower()
-            if any(k in txt for k in ["submit", "post", "done"]):
+            if any(k in txt for k in ["submit", "post", "done", "review"]):
                 if b.is_displayed():
                     scroll_to_view(driver, b, True)
                     driver.execute_script("arguments[0].click();", b)
@@ -1805,22 +1809,29 @@ def get_custom_answer(label: str) -> str | None:
             return str(value)
             
     # 2. Try matching technical skills even if they are part of a word (e.g., 'LLMs', 'RAG-enabled')
-    # We only do this for keywords that look like technical skills (all caps or contains special chars)
-    # or are explicitly in a 'technical' list.
     technical_keywords = ["llm", "rag", "mcp", "ai", "aws", "gcp", "sql", "java", "scala"]
     for keyword, value in custom_answers.items():
         kw_low = keyword.lower()
         if kw_low in technical_keywords and kw_low in label_lower:
             return str(value)
     
-    # 3. Try matching words inside brackets specifically (common for LinkedIn skills)
+    # 3. Try matching words inside brackets specifically
     bracketed = re.findall(r'\((.*?)\)', label_lower)
     for skill in bracketed:
         skill = skill.strip().lower()
         for keyword, value in custom_answers.items():
             if keyword.lower() == skill:
                 return str(value)
-    
+
+    # 4. Try matching as regex (if the key looks like one or contains special chars)
+    for keyword, value in custom_answers.items():
+        if any(c in keyword for c in [".*", "+", "^", "$", "?", "[", "("]):
+            try:
+                if re.search(keyword, label_lower, re.IGNORECASE):
+                    return str(value)
+            except Exception:
+                continue
+                
     return None
 
 def save_questions_to_custom_config(questions_list: set) -> None:
@@ -2297,6 +2308,28 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 mn, mx = text.get_attribute("min"), text.get_attribute("max")
                 if mn and str(answer).lstrip("-").isdigit() and int(answer) < int(mn): answer = mn
                 if mx and str(answer).lstrip("-").isdigit() and int(answer) > int(mx): answer = mx
+                # --- Patch 8: Dynamic Validation Recovery ---
+                # Check for nearby error messages (e.g. "larger than 7")
+                try:
+                    error_els = Question.find_elements(By.XPATH, ".//*[contains(@class,'error') or @role='alert']")
+                    for err in error_els:
+                        if err.is_displayed() and err.text:
+                            # Match "larger than X" or "at least X" or "minimum of X" or "more than X"
+                            match = re.search(r"(?:larger than|at least|minimum of|more than)\s+([\d.]+)", err.text.lower())
+                            if match:
+                                req_val = float(match.group(1))
+                                if str(answer).replace(".","",1).isdigit():
+                                    if float(answer) < req_val:
+                                        # Set to integer if X was integer, else decimal
+                                        if "." in match.group(1):
+                                            answer = str(req_val + 0.1)
+                                        else:
+                                            answer = str(int(req_val + 1))
+                                        print_lg(f"[Patch8] Adjusted answer for '{label_org}' to {answer} due to error: '{err.text}'")
+                except Exception as _patch8_err:
+                    pass
+                # --- End Patch 8 ---
+
                 text.clear()
                 text.send_keys(str(answer))
                 actual = text.get_attribute("value")
@@ -3152,6 +3185,9 @@ def run_applications(search_terms: list[str]) -> None:
 
                     submitted_jobs(job_id, title, company, work_location, work_style, description, experience_required, skills, hr_name, hr_link, resume, reposted, date_listed, date_applied, job_link, application_link, questions_list, connect_request)
                     if uploaded:   useNewResume = False
+                    
+                    if questions_list:
+                        save_questions_to_custom_config(questions_list)
 
                     print_lg(f'Successfully saved "{title} | {company}" job. Job ID: {job_id} info')
                     current_count += 1

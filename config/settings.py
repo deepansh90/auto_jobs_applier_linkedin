@@ -50,7 +50,7 @@ chromium_binary_path = ""          # Example: "/Applications/Chromium.app/Conten
 # unchecked regardless of this flag (automation policy). Kept for config compatibility.
 follow_companies = False           # True or False, Note: True or False are case-sensitive
 
-max_applied_jobs = 10               # Maximum Easy Apply submissions per run (see logs/ and logs/screenshots/)
+max_applied_jobs = 15              # Max number of jobs to apply for, before stopping the process
 randomize_wait_times = True        # Enable human-like randomized delays between actions
 
 # Pause after search for manual review
