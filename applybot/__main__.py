@@ -3016,7 +3016,7 @@ def run_applications(search_terms: list[str]) -> None:
                                     print_lg("Since, Submit Application failed, discarding the job application...")
                                     # if screenshot_name == "Not Available":  screenshot_name = screenshot(driver, job_id, "Failed to click Submit application")
                                     # else:   screenshot_name = [screenshot_name, screenshot(driver, job_id, "Failed to click Submit application")]
-                                    if errored == "nose": raise Exception("Failed to click Submit application 😑")
+                                    raise Exception("Failed to click Submit application 😑")
 
 
                         except Exception as e:
