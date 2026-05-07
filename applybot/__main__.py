@@ -944,7 +944,7 @@ def set_search_location() -> None:
                 actions.send_keys(Keys.ENTER).perform()
             except Exception as e:
 
-                print_lg(f"[ERROR] Caught Exception: {e}")
+                # print_lg(f"[ERROR] Caught Exception: {e}")
                 print_lg("Failed to update search location, continuing with default location!", e)
             try_xp(driver, ".//button[@aria-label='Cancel']")
 
@@ -988,7 +988,7 @@ def ensure_classic_search() -> None:
                 sleep(2)
             except Exception as e:
 
-                print_lg(f"[ERROR] Ignored Exception: {e}")
+                # print_lg(f"[ERROR] Ignored Exception: {e}")
 
                 pass
             
@@ -1010,7 +1010,7 @@ def ensure_classic_search() -> None:
                         return
                     except Exception as e:
 
-                        print_lg(f"[ERROR] Caught Exception: {e}")
+                        # print_lg(f"[ERROR] Caught Exception: {e}")
                         continue
                 sleep(2) # Wait a bit before second retry
                 
@@ -1148,7 +1148,7 @@ def apply_filters() -> None:
                 break
             except Exception as e:
 
-                print_lg(f"[ERROR] Caught Exception: {e}")
+                # print_lg(f"[ERROR] Caught Exception: {e}")
                 continue
         
         # Fallback for AI-Beta layout: Click individual pills if "All filters" is missing
@@ -1209,7 +1209,7 @@ def apply_filters() -> None:
             show_results_button: WebElement = driver.find_element(By.XPATH, '//button[contains(normalize-space(.), "results")]')
         except Exception as e:
 
-            print_lg(f"[ERROR] Caught Exception: {e}")
+            # print_lg(f"[ERROR] Caught Exception: {e}")
             show_results_button: WebElement = driver.find_element(By.XPATH, '//button[contains(translate(@aria-label, "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "apply current filters to show")]')
         
         scroll_to_view(driver, show_results_button)
@@ -1218,7 +1218,7 @@ def apply_filters() -> None:
             show_results_button.click()
         except Exception as e:
 
-            print_lg(f"[ERROR] Caught Exception: {e}")
+            # print_lg(f"[ERROR] Caught Exception: {e}")
             driver.execute_script("arguments[0].click();", show_results_button)
 
         global pause_after_filters
@@ -1289,15 +1289,10 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
         elif job_id in rejected_jobs: 
             print_lg(f'Skipping previously rejected "{title} | {company}" job. Job ID: {job_id}!')
             skip = True
-        try:
-            if job.find_element(By.CLASS_NAME, "job-card-container__footer-job-state").text == "Applied":
-                skip = True
-                print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
-        except Exception as e:
-
-            print_lg(f"[ERROR] Ignored Exception: {e}")
-
-            pass
+        applied_elements = job.find_elements(By.CLASS_NAME, "job-card-container__footer-job-state")
+        if applied_elements and applied_elements[0].text == "Applied":
+            skip = True
+            print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
         try: 
             if not skip: 
                 # Try clicking via JS as click() is sometimes intercepted
@@ -1309,8 +1304,12 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
         buffer(click_gap)
         return (job_id,title,company,work_location,work_style,skip)
     except Exception as e:
+        elow = str(e).lower()
+        if isinstance(e, InvalidSessionIdException) or "invalid session" in elow:
+            print_lg(f"Invalid WebDriver session while reading job card: {str(e)[:160]}")
+            raise
         # Patch 4: Single bounded retry — re-fetch the element from the DOM if stale
-        if not _retry and "stale element" in str(e).lower():
+        if not _retry and "stale element" in elow:
             try:
                 job_id_attr = job.get_dom_attribute('data-occludable-job-id')
             except Exception:
@@ -1329,7 +1328,7 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
             print_lg(f"Error fetching main details for Job ID {job_id}: {str(e)[:100]}")
         except Exception as e:
 
-            print_lg(f"[ERROR] Caught Exception: {e}")
+            # print_lg(f"[ERROR] Caught Exception: {e}")
             print_lg(f"Error fetching main details for a job (stale or missing): {str(e)[:100]}")
         return ("", "", "", "", "", True)
 
@@ -1411,7 +1410,11 @@ def get_job_description(
     skipMessage = None
     try:
         found_masters = 0
-        jobDescription = find_by_class(driver, "jobs-box__html-content").text
+        jd_element = find_by_class(driver, "jobs-box__html-content")
+        if jd_element:
+            jobDescription = jd_element.text
+        else:
+            raise Exception("Job description element not found")
         jobDescriptionLow = jobDescription.lower()
         for word in bad_words:
             w = (word or "").strip()
@@ -1611,6 +1614,60 @@ def commit_typeahead_choice(
         pass
 
 
+def dismiss_lingering_easy_apply_modal(max_rounds: int = 4) -> None:
+    """
+    Close Easy Apply / artdeco overlays that block pagination or job-card clicks.
+
+    LinkedIn often leaves ``easy-apply-modal`` as the top layer after Discard
+    paths or errors; pagination then hits ElementClickInterceptedException.
+    """
+    for _ in range(max_rounds):
+        try:
+            overlays = driver.find_elements(
+                By.CSS_SELECTOR,
+                (
+                    ".jobs-easy-apply-modal, "
+                    "[data-test-modal-id='easy-apply-modal'], "
+                    ".artdeco-modal-overlay--is-top-layer"
+                ),
+            )
+            visible = [el for el in overlays if el.is_displayed()]
+        except Exception:
+            visible = []
+        if not visible:
+            return
+        print_lg("[INFO] Dismissing lingering Easy Apply / modal overlay (ESC + Discard + dismiss)…")
+        try:
+            actions.send_keys(Keys.ESCAPE).perform()
+            sleep(0.45)
+        except Exception:
+            pass
+        try:
+            wait_span_click(driver, "Discard", 1, silent=True)
+        except Exception:
+            pass
+        for xp in (
+            "//button[contains(@aria-label,'Dismiss')]",
+            "//button[contains(@class,'artdeco-modal__dismiss')]",
+        ):
+            clicked = False
+            try:
+                for b in driver.find_elements(By.XPATH, xp):
+                    try:
+                        if b.is_displayed():
+                            driver.execute_script("arguments[0].click();", b)
+                            clicked = True
+                            sleep(0.35)
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+            if clicked:
+                break
+        sleep(0.4)
+
+
 def get_active_modal(timeout: float = 5.0) -> WebElement:
     '''
     Always return the currently-live Easy Apply modal WebElement.
@@ -1632,6 +1689,7 @@ def get_active_modal(timeout: float = 5.0) -> WebElement:
         except Exception as e:
             if attempt == 2: raise e
             sleep(1)
+    raise NoSuchElementException("No visible Easy Apply modal found after retries")
 
 
 def _find_next_or_review_or_submit(modal: WebElement) -> WebElement:
@@ -1661,60 +1719,89 @@ def _find_next_or_review_or_submit(modal: WebElement) -> WebElement:
 def _click_submit_easy_apply_final() -> bool:
     '''
     Click Submit inside the Easy Apply modal using modal-scoped XPaths first.
-    Avoids matching unrelated "Submit" buttons elsewhere on the page and reduces
-    false negatives when LinkedIn uses slightly different labels/aria text.
+    Two passes with a fresh modal handle reduce stale-element false negatives.
+    Falls back to document-wide XPaths and ``wait_span_click`` labels.
     '''
-    try:
-        modal = get_active_modal(4)
-    except Exception:
-        return bool(wait_span_click(driver, "Submit application", 2, scrollTop=True)) or bool(wait_span_click(driver, "Submit", 2, scrollTop=True))
-    xps = [
+    from applybot.submit_button_helpers import button_text_suggests_final_submit
+
+    modal_xps = [
+        './/div[contains(@class,"jobs-easy-apply-footer")]//button[contains(normalize-space(.),"Submit")]',
+        './/footer//button[contains(normalize-space(.),"Submit")]',
         './/button[contains(normalize-space(.), "Submit application")]',
         './/button[.//span[contains(normalize-space(.), "Submit application")]]',
         './/button[contains(@aria-label, "Submit application")]',
         './/button[contains(@aria-label, "Submit your application")]',
+        './/button[contains(normalize-space(.), "Send application")]',
+        './/button[contains(@aria-label, "Send application")]',
+        './/button[contains(normalize-space(.), "Submit my application")]',
+        './/span[contains(normalize-space(.), "Submit application")]/ancestor::button[1]',
+        './/span[contains(normalize-space(.), "Send application")]/ancestor::button[1]',
         './/button[normalize-space(.)="Submit"]',
         './/button[.//span[normalize-space(.)="Submit"]]',
         './/button[@aria-label="Submit"]',
         './/button[contains(normalize-space(.), "Post")]',
         './/button[contains(normalize-space(.), "Submit")]',
     ]
-    for xp in xps:
-        try:
-            btn = modal.find_element(By.XPATH, xp)
-            if not btn.is_displayed():
-                continue
-            scroll_to_view(driver, btn, True)
+
+    def _try_modal(modal: WebElement) -> bool:
+        for xp in modal_xps:
             try:
-                btn.click()
+                btn = modal.find_element(By.XPATH, xp)
+                if not btn.is_displayed():
+                    continue
+                scroll_to_view(driver, btn, True)
+                try:
+                    btn.click()
+                except Exception:
+                    driver.execute_script("arguments[0].click();", btn)
+                buffer(click_gap)
+                return True
+            except (NoSuchElementException, ElementClickInterceptedException, StaleElementReferenceException):
+                continue
             except Exception:
-                driver.execute_script("arguments[0].click();", btn)
-            buffer(click_gap)
-            return True
-        except (NoSuchElementException, ElementClickInterceptedException, StaleElementReferenceException):
-            continue
-        except Exception:
-            continue
-    
-    # FINAL CATCH-ALL: Search all buttons in modal for any matching keyword
-    try:
-        btns = modal.find_elements(By.TAG_NAME, "button")
-        for b in btns:
-            txt = (b.text or b.get_attribute("aria-label") or "").lower()
-            if any(k in txt for k in ["submit", "post", "done", "review"]):
-                if b.is_displayed():
-                    scroll_to_view(driver, b, True)
+                continue
+        try:
+            for b in modal.find_elements(By.TAG_NAME, "button"):
+                try:
+                    if not b.is_displayed():
+                        continue
+                except Exception:
+                    continue
+                txt = (b.text or "").strip()
+                aria = (b.get_attribute("aria-label") or "").strip()
+                if not button_text_suggests_final_submit(txt, aria):
+                    continue
+                scroll_to_view(driver, b, True)
+                try:
                     driver.execute_script("arguments[0].click();", b)
-                    print_lg(f"[INFO] Clicked fallback submit button: {txt}")
-                    return True
-    except Exception:
-        pass
-        
+                except Exception:
+                    try:
+                        b.click()
+                    except Exception:
+                        continue
+                print_lg(f"[INFO] Clicked heuristic submit button: {txt!r} / {aria!r}")
+                buffer(click_gap)
+                return True
+        except Exception:
+            pass
+        return False
+
+    for attempt in range(2):
+        try:
+            modal = get_active_modal(5.0 if attempt else 4.0)
+        except Exception:
+            modal = None
+        if modal is not None and _try_modal(modal):
+            return True
+        sleep(0.55)
+
     doc_xps = [
         '//button[contains(normalize-space(.), "Submit application")]',
         '//button[.//span[contains(normalize-space(.), "Submit application")]]',
         '//button[contains(@aria-label, "Submit application")]',
         '//button[contains(@aria-label, "Submit your application")]',
+        '//button[contains(normalize-space(.), "Send application")]',
+        '//button[contains(@aria-label, "Send application")]',
         '//button[contains(normalize-space(.), "Done")]',
         '//button[contains(normalize-space(.), "Post")]',
         '//button[contains(normalize-space(.), "Submit")]',
@@ -1733,10 +1820,20 @@ def _click_submit_easy_apply_final() -> bool:
                 except Exception:
                     driver.execute_script("arguments[0].click();", btn)
                 buffer(click_gap)
-                print_lg(f"[INFO] Document-wide click matched: {xp[:60]}…")
+                print_lg(f"[INFO] Document-wide submit click matched: {xp[:72]}…")
                 return True
         except Exception:
             continue
+
+    for lbl in (
+        "Submit application",
+        "Submit your application",
+        "Send application",
+        "Submit",
+        "Done",
+    ):
+        if wait_span_click(driver, lbl, 4.0, scrollTop=True, silent=True):
+            return True
 
     print_lg("Click Failed! Didn't find 'Submit application'")
     screenshot(driver, "SUBMIT_FAILURE", "Failed to find submit button")
@@ -1787,11 +1884,11 @@ def upload_resume(modal: WebElement, resume: str) -> tuple[bool, str]:
         modal.find_element(By.NAME, "file").send_keys(os.path.abspath(resume))
         try:
             WebDriverWait(driver, 10).until(lambda d: basename in modal.find_element(By.XPATH, "//*[contains(@class,'upload')]").text)
-        except Exception as e:
-            print_lg(f"[WARN] Resume upload may have failed — '{basename}' not confirmed in UI")
+        except Exception:
+            dbg(f"Resume upload check timed out for '{basename}' — usually a false positive if upload succeeded silently")
         return True, basename
     except Exception as e:
-        print_lg(f"[ERROR] Caught Exception: {e}")
+        # print_lg(f"[ERROR] Caught Exception: {e}")
         return False, "Previous resume"
 
 # Function to check for custom answers from configuration
@@ -1985,7 +2082,7 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 label_org = label.find_element(By.TAG_NAME, "span").text
             except Exception as e:
 
-                print_lg(f"[ERROR] Ignored Exception: {e}")
+                # print_lg(f"[ERROR] Ignored Exception: {e}")
 
                 pass
             answer = 'Yes'
@@ -2135,7 +2232,7 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
             try: label = find_by_class(label, "visually-hidden", 2.0)
             except Exception as e:
 
-                print_lg(f"[ERROR] Ignored Exception: {e}")
+                # print_lg(f"[ERROR] Ignored Exception: {e}")
 
                 pass
             label_org = label.text if label else "Unknown"
@@ -2210,7 +2307,7 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
             try: label = label.find_element(By.CLASS_NAME,'visually-hidden')
             except Exception as e:
 
-                print_lg(f"[ERROR] Ignored Exception: {e}")
+                # print_lg(f"[ERROR] Ignored Exception: {e}")
 
                 pass
             label_org = label.text if label else "Unknown"
@@ -2289,14 +2386,12 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                         # field causes LinkedIn validation errors → infinite Next loop.
                         if ("experience" in label or "years" in label) and years_of_experience:
                             if _label_looks_skill_specific_years(label):
-                                # For specific skills we don't know, don't just use total career years (e.g. 13).
-                                # Use a more conservative default (max 3) to be safer for newer tech.
-                                fallback_val = "3"
-                                if years_of_experience.isdigit() and int(years_of_experience) < 3:
-                                    fallback_val = years_of_experience
-                                
-                                print_lg(f'[Patch7] Unknown skill fallback (AI offline): answering "{label_org}" with conservative {fallback_val} instead of total {years_of_experience}')
-                                answer = fallback_val
+                                # Offline: use profile total (honest). Conservative "3" misrepresented
+                                # senior candidates; validation still uses min/max on the input.
+                                print_lg(
+                                    f'[Patch7] Unknown skill (AI offline): using years_of_experience={years_of_experience} for "{label_org}"'
+                                )
+                                answer = years_of_experience
                             else:
                                 print_lg(f'[Patch7] General experience fallback: answering "{label_org}" with years_of_experience={years_of_experience}')
                                 answer = years_of_experience
@@ -2365,11 +2460,10 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                     else:
                         if ("experience" in label or "years" in label) and years_of_experience:
                             if _label_looks_skill_specific_years(label):
-                                fallback_val = "3"
-                                if years_of_experience.isdigit() and int(years_of_experience) < 3:
-                                    fallback_val = years_of_experience
-                                print_lg(f'[Patch7] Unknown skill fallback (AI offline): answering "{label_org}" textarea with conservative {fallback_val} instead of total {years_of_experience}')
-                                answer = fallback_val
+                                print_lg(
+                                    f'[Patch7] Unknown skill (AI offline): using years_of_experience={years_of_experience} for textarea "{label_org}"'
+                                )
+                                answer = years_of_experience
                             else:
                                 print_lg(f'[Patch7] General experience fallback: answering "{label_org}" textarea with years_of_experience={years_of_experience}')
                                 answer = years_of_experience
@@ -2474,7 +2568,7 @@ def external_apply(pagination_element: WebElement, job_id: str, job_link: str, r
             if "exceeded the daily application limit" in driver.find_element(By.CLASS_NAME, "artdeco-inline-feedback__message").text: dailyEasyApplyLimitReached = True
         except Exception as e:
 
-            print_lg(f"[ERROR] Ignored Exception: {e}")
+            # print_lg(f"[ERROR] Ignored Exception: {e}")
 
             pass
         print_lg("Easy apply failed I guess!")
@@ -2724,6 +2818,7 @@ def run_applications(search_terms: list[str]) -> None:
                             print_lg(f"[Patch4] {_consecutive_stale_failures} consecutive stale failures; refreshing page...")
                             driver.refresh()
                             sleep(3)
+                            dismiss_lingering_easy_apply_modal()
                             _consecutive_stale_failures = 0
                             break  # break inner for-loop to re-enter while and re-fetch listings
                     else:
@@ -3211,6 +3306,7 @@ def run_applications(search_terms: list[str]) -> None:
                 if pagination_element == None:
                     print_lg("Couldn't find pagination element, probably at the end page of results!")
                     break
+                dismiss_lingering_easy_apply_modal()
                 try:
                     next_page_btn = pagination_element.find_element(By.XPATH, f"//button[@aria-label='Page {current_page+1}']")
                     try:
@@ -3281,10 +3377,20 @@ def run(total_runs: int) -> int:
     run_applications(search_terms)
     print_lg("########################################################################################################################\n")
     if not dailyEasyApplyLimitReached:
-        print_lg("Sleeping for 5 min...")
-        sleep(300)
-        print_lg("Few more min... Starting in next 5 min...")
-        sleep(300)
+        if (os.environ.get("APPLYBOT_E2E_FAST_CYCLE") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        ):
+            print_lg(
+                "[INFO] APPLYBOT_E2E_FAST_CYCLE=1: skipping inter-cycle 5+5 min sleeps (E2E / CI / dev)."
+            )
+        else:
+            print_lg("Sleeping for 5 min...")
+            sleep(300)
+            print_lg("Few more min... Starting in next 5 min...")
+            sleep(300)
     buffer(3)
     return total_runs + 1
 
@@ -3340,6 +3446,12 @@ def main() -> None:
         if not is_logged_in_LN(): login_LN()
         
         linkedIn_tab = driver.current_window_handle
+
+        print_lg(
+            f"[session-start] pid={os.getpid()} "
+            f"time={datetime.now().isoformat(timespec='seconds')} "
+            f"(same-day session_*.log may interleave lines from multiple bot runs)"
+        )
 
         # # Login to ChatGPT in a new tab for resume customization
         # if use_resume_generator:
@@ -3407,6 +3519,11 @@ def main() -> None:
         critical_error_log("In Applier Main", e)
         smart_alert(e,alert_title)
     finally:
+        print_lg(
+            f"[session-shutdown] pid={os.getpid()} "
+            f"easy_applied={easy_applied_count} failed={failed_count} skipped={skip_count} "
+            f"external={external_jobs_count} total_runs={total_runs}"
+        )
         summary = "Total runs: {}\nJobs Easy Applied: {}\nExternal job links collected: {}\nTotal applied or collected: {}\nFailed jobs: {}\nIrrelevant jobs skipped: {}\n".format(total_runs,easy_applied_count,external_jobs_count,easy_applied_count + external_jobs_count,failed_count,skip_count)
         print_lg(summary)
         print_lg("\n\nTotal runs:                     {}".format(total_runs))

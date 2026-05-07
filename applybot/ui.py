@@ -136,11 +136,14 @@ def toggle_switch(
         print_lg("Click Failed! Didn't find '" + text + "'")
 
 # Find functions
-def find_by_class(driver: WebDriver, class_name: str, time: float=5.0) -> WebElement | Exception:
+def find_by_class(driver: WebDriver, class_name: str, time: float=5.0) -> WebElement | None:
     '''
-    Waits for a max of `time` seconds for element to be found, and returns `WebElement` if found, else `Exception` if not found.
+    Waits for a max of `time` seconds for element to be found, and returns `WebElement` if found, else `None` if not found.
     '''
-    return WebDriverWait(driver, time).until(EC.presence_of_element_located((By.CLASS_NAME, class_name)))
+    try:
+        return WebDriverWait(driver, time).until(EC.presence_of_element_located((By.CLASS_NAME, class_name)))
+    except Exception:
+        return None
 
 # Scroll functions
 def scroll_to_view(driver: WebDriver, element: WebElement, top: bool = False, smooth_scroll: bool = smooth_scroll) -> None:
