@@ -65,7 +65,7 @@ use_existing_browser = False
 debugger_port = 9222                
 
 # Strategy when AI is offline. Options: "pause", "skip_all", "apply_all"
-offline_mode_strategy = "skip_all"
+offline_mode_strategy = "apply_all"
 
 
 # Do you want to see AI-related error alerts?

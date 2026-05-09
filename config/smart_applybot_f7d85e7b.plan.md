@@ -31,7 +31,7 @@ todos:
     status: completed
   - id: p9-learning-store
     content: P9 — JSON learned-answer store, answer_router precedence, audit-gated promotion, --review-learned-answers, session digest.
-    status: pending
+    status: completed
   - id: p10-operator-ai
     content: P10 — Post-batch Operator AI analyzer (deterministic + optional local LLM) producing digest, tuning suggestions, risk flags.
     status: pending

@@ -33,6 +33,10 @@ apply_user_overlay()
 from applybot.migrations import migrate_legacy_directories
 migrate_legacy_directories()
 
+from applybot.job_matcher import evaluate_job
+from config.settings import min_job_relevance_score
+from applybot.answer_router import get_answer_from_router, save_learned_answer
+
 from config.search import *
 from config.secrets import use_AI, username, password, ai_provider, llm_api_key
 from config.settings import *
@@ -2109,24 +2113,17 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 elif 'proficiency' in label: 
                     answer = 'Professional'
                 # Add location handling
-                elif any(
-                    loc_word in label
-                    for loc_word in ['location', 'city', 'state', 'country', 'nationality']
-                ):
-                    if 'country' in label or 'nationality' in label:
-                        answer = country
-                    elif 'state' in label:
-                        answer = state
-                    elif 'city' in label:
-                        answer = _easy_apply_location_text_answer(work_location)
-                    else:
-                        answer = _easy_apply_location_text_answer(work_location)
                 else:
-                    custom_answer = get_custom_answer(label)
-                    if custom_answer:
-                        answer = custom_answer
+                    # Use answer_router for high-level precedence
+                    router_answer = get_answer_from_router(label_org, type="select")
+                    if router_answer:
+                        answer = router_answer
                     else:
-                        answer = answer_common_questions(label, answer)
+                        custom_answer = get_custom_answer(label)
+                        if custom_answer:
+                            answer = custom_answer
+                        else:
+                            answer = answer_common_questions(label, answer)
                 if (not answer) or str(answer).strip().lower() == "select an option":
                     answer = "Yes"
                 # --- Patch 1A: Binary-option coercion ---
@@ -2200,6 +2197,8 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                                 answer = ai_pick
                                 foundOption = True
                                 print_lg(f'[AI] Selected "{ai_pick}" for dropdown "{label_org}"')
+                                # Learn the answer for future review (P9)
+                                save_learned_answer(label_org, answer)
                             except NoSuchElementException:
                                 foundOption = False
                     if not foundOption:
@@ -2257,16 +2256,21 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 label_org += f' {options_labels[-1]},'
 
             if overwrite_previous_answers or prev_answer is None:
-                if 'citizenship' in label or 'employment eligibility' in label: answer = us_citizenship
-                elif 'veteran' in label or 'protected' in label: answer = veteran_status
-                elif 'disability' in label or 'handicapped' in label: 
-                    answer = disability_status
-                else: 
-                    custom_answer = get_custom_answer(label)
-                    if custom_answer:
-                        answer = custom_answer
-                    else:
-                        answer = answer_common_questions(label,answer)
+                # Use answer_router for high-level precedence
+                router_answer = get_answer_from_router(label_org, type="radio")
+                if router_answer:
+                    answer = router_answer
+                else:
+                    if 'citizenship' in label or 'employment eligibility' in label: answer = us_citizenship
+                    elif 'veteran' in label or 'protected' in label: answer = veteran_status
+                    elif 'disability' in label or 'handicapped' in label: 
+                        answer = disability_status
+                    else: 
+                        custom_answer = get_custom_answer(label)
+                        if custom_answer:
+                            answer = custom_answer
+                        else:
+                            answer = answer_common_questions(label,answer)
                 match_label = _radio_answer_for_label_match(str(answer))
                 foundOption = try_xp(radio, f".//label[normalize-space()='{match_label}']", False)
                 if foundOption: 
@@ -2322,69 +2326,72 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
 
             prev_answer = text.get_attribute("value")
             if not prev_answer or overwrite_previous_answers:
-                custom_answer = get_custom_answer(label)
-                if custom_answer:
-                    answer = custom_answer
-                elif (
-                    ("experience" in label or "years" in label)
-                    and not _label_looks_skill_specific_years(label)
-                ):
-                    answer = years_of_experience
-                elif 'phone' in label or 'mobile' in label: answer = phone_number
-                elif 'street' in label: answer = street
-                elif 'city' in label or 'location' in label or 'address' in label:
-                    answer = _easy_apply_location_text_answer(work_location)
-                    do_actions = True
-                elif 'signature' in label: answer = full_name # 'signature' in label or 'legal name' in label or 'your name' in label or 'full name' in label: answer = full_name     # What if question is 'name of the city or university you attend, name of referral etc?'
-                elif 'name' in label:
-                    if 'full' in label: answer = full_name
-                    elif 'first' in label and 'last' not in label: answer = first_name
-                    elif 'middle' in label and 'last' not in label: answer = middle_name
-                    elif 'last' in label and 'first' not in label: answer = last_name
-                    elif 'employer' in label: answer = recent_employer
-                    else: answer = full_name
-                elif 'notice' in label:
-                    if 'month' in label:
-                        answer = notice_period_months
-                    elif 'week' in label:
-                        answer = notice_period_weeks
-                    else: answer = notice_period
-                elif 'salary' in label or 'compensation' in label or 'ctc' in label or 'pay' in label: 
-                    if 'current' in label or 'present' in label:
-                        if 'month' in label:
-                            answer = current_ctc_monthly
-                        elif 'lakh' in label:
-                            answer = current_ctc_lakhs
+                # Use answer_router for high-level precedence
+                router_answer = get_answer_from_router(label_org, type="text")
+                if router_answer:
+                    answer = router_answer
+                else:
+                    custom_answer = get_custom_answer(label)
+                    if custom_answer:
+                        answer = custom_answer
+                    elif (
+                        ("experience" in label or "years" in label)
+                        and not _label_looks_skill_specific_years(label)
+                    ):
+                        answer = years_of_experience
+                    elif 'phone' in label or 'mobile' in label: answer = phone_number
+                    elif 'street' in label: answer = street
+                    elif 'city' in label or 'location' in label or 'address' in label:
+                        answer = _easy_apply_location_text_answer(work_location)
+                        do_actions = True
+                    elif 'signature' in label: answer = full_name
+                    elif 'name' in label:
+                        if 'full' in label: answer = full_name
+                        elif 'first' in label and 'last' not in label: answer = first_name
+                        elif 'middle' in label and 'last' not in label: answer = middle_name
+                        elif 'last' in label and 'first' not in label: answer = last_name
+                        elif 'employer' in label: answer = recent_employer
+                        else: answer = full_name
+                    elif 'notice' in label:
+                        answer = notice_period
+                    elif 'salary' in label or 'compensation' in label or 'ctc' in label or 'pay' in label: 
+                        if 'current' in label or 'present' in label:
+                            if 'month' in label:
+                                answer = current_ctc_monthly
+                            elif 'lakh' in label:
+                                answer = current_ctc_lakhs
+                            else:
+                                answer = current_ctc
                         else:
-                            answer = current_ctc
-                    else:
-                        if 'month' in label:
-                            answer = desired_salary_monthly
-                        elif 'lakh' in label:
-                            answer = desired_salary_lakhs
-                        else:
-                            answer = desired_salary
-                elif 'linkedin' in label: answer = linkedIn
-                elif 'website' in label or 'blog' in label or 'portfolio' in label or 'link' in label: answer = website
-                elif 'scale of 1-10' in label: answer = confidence_level
-                elif 'headline' in label: answer = linkedin_headline
-                elif ('hear' in label or 'come across' in label) and 'this' in label and ('job' in label or 'position' in label): answer = "LinkedIn"
-                elif 'state' in label or 'province' in label:
-                    answer = state
-                    do_actions = True
-                elif 'zip' in label or 'postal' in label or 'code' in label: answer = zipcode
-                elif 'country' in label:
-                    answer = country
-                    do_actions = True
-                elif 'nationality' in label:
-                    answer = country
-                else: answer = answer_common_questions(label,answer)
+                            if 'month' in label:
+                                answer = desired_salary_monthly
+                            elif 'lakh' in label:
+                                answer = desired_salary_lakhs
+                            else:
+                                answer = desired_salary
+                    elif 'linkedin' in label: answer = linkedIn
+                    elif 'website' in label or 'blog' in label or 'portfolio' in label or 'link' in label: answer = website
+                    elif 'scale of 1-10' in label: answer = confidence_level
+                    elif 'headline' in label: answer = linkedin_headline
+                    elif ('hear' in label or 'come across' in label) and 'this' in label and ('job' in label or 'position' in label): answer = "LinkedIn"
+                    elif 'state' in label or 'province' in label:
+                        answer = state
+                        do_actions = True
+                    elif 'zip' in label or 'postal' in label or 'code' in label: answer = zipcode
+                    elif 'country' in label:
+                        answer = country
+                        do_actions = True
+                    elif 'nationality' in label:
+                        answer = country
+                    else: answer = answer_common_questions(label,answer)
                 ##> ------ Yang Li : MARKYangL - Feature ------
                 if answer == "":
                     ai_answer = ai_text_answer('answer_question', aiClient, label_org, options=None, question_type="text", job_description=job_description, about_company=None, user_information_all=user_information_all) if use_AI else ""
                     if ai_answer:
                         answer = ai_answer
                         print_lg(f'AI Answered received for question "{label_org}" \nhere is answer: "{answer}"')
+                        # Learn the answer for future review (P9)
+                        save_learned_answer(label_org, answer)
                     else:
                         # Patch 7: Last-resort fallback for skill-specific years/experience
                         # questions that slipped past the main handler (e.g., "Total experience
@@ -2929,8 +2936,8 @@ def run_applications(search_terms: list[str]) -> None:
                         message = decision.get("skip_message", "")
                         print_lg(f"-- Deterministic hard filter triggered: {reason}")
                     
-                    if not skip and decision["deterministic_score"] >= 85:
-                        print_lg(f"-- Deterministic score is {decision['deterministic_score']} (>= 85). Auto-approving, bypassing AI.")
+                    if not skip and decision["deterministic_score"] >= 75:
+                        print_lg(f"-- Deterministic score is {decision['deterministic_score']} (>= 75). Auto-approving, bypassing AI.")
                         _rel_score = decision["deterministic_score"]
                         skip = False
 
@@ -2946,7 +2953,7 @@ def run_applications(search_terms: list[str]) -> None:
                                 except (TypeError, ValueError):
                                     _rel_score = None
                             
-                            from config.settings import min_job_relevance_score
+                            # Re-check relevance threshold if score was provided
                             if _rel_score is not None and _rel_score < min_job_relevance_score:
                                 print_lg(f"  [SKIP] Relevance score ({_rel_score}%) is below minimum threshold ({min_job_relevance_score}%).")
                                 skip = True
