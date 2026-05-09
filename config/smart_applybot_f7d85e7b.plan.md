@@ -26,9 +26,9 @@ todos:
   - id: p7-local-llm-first-class
     content: P7 — Provider config helper, optional /models health check, OpenAI-compatible resume autofill, local LLM docs.
     status: pending
-  - id: p8-job-matcher
+  - id: p8-deterministic-matcher
     content: P8 — Deterministic job_matcher.py with hard filters + skill aliases, unified thresholds, decision JSONL log.
-    status: pending
+    status: completed
   - id: p9-learning-store
     content: P9 — JSON learned-answer store, answer_router precedence, audit-gated promotion, --review-learned-answers, session digest.
     status: pending

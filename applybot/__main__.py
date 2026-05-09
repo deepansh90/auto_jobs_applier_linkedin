@@ -1415,48 +1415,43 @@ def get_job_description(
             jobDescription = jd_element.text
         else:
             raise Exception("Job description element not found")
-        jobDescriptionLow = jobDescription.lower()
-        for word in bad_words:
-            w = (word or "").strip()
-            if not w:
-                continue
-            wl = w.lower()
-            try:
-                # Leading punctuation (e.g. ".net") is not a \w boundary; use (?<!\w)(?!\w) instead.
-                if re.match(r"^[^\w]", wl):
-                    pat = re.compile(r"(?<!\w)" + re.escape(wl) + r"(?!\w)")
-                else:
-                    pat = re.compile(r"\b" + re.escape(wl) + r"\b")
-            except re.error:
-                continue
-            if pat.search(jobDescriptionLow):
-                skipMessage = f'\n{jobDescription}\n\nContains bad word "{word}". Skipping this job!\n'
-                skipReason = "Found a Bad Word in About Job"
-                skip = True
-                break
-        if not skip and security_clearance == False and ('polygraph' in jobDescriptionLow or 'clearance' in jobDescriptionLow or 'secret' in jobDescriptionLow):
-            skipMessage = f'\n{jobDescription}\n\nFound "Clearance" or "Polygraph". Skipping this job!\n'
-            skipReason = "Asking for Security clearance"
+        
+        # Build config dictionary for job_matcher from global settings
+        matcher_config = {
+            "bad_words": bad_words,
+            "blacklisted_companies": blacklisted_companies,
+            "security_clearance": security_clearance,
+            "min_job_relevance_score": min_job_relevance_score
+        }
+        
+        # Get company/title from the current job scope (these are globals set in the main loop, 
+        # but for get_job_description we don't have them passed in. Let's extract them from the UI if needed, 
+        # or we just let evaluate_job handle the description for bad words first)
+        
+        # Actually, since get_job_description doesn't have title/company, we can just do the experience check here
+        # or we can pass title/company to get_job_description. Since they are used in the main loop, we'll
+        # just do the bad word check and experience check here, but using job_matcher's logic where possible.
+        
+        # For now, we will just keep the extraction here and let the main loop call evaluate_job.
+        if did_masters and 'master' in jobDescription.lower():
+            print_lg(f'Found the word "master" in \\n{jobDescription}')
+            found_masters = 2
+        experience_required = extract_years_of_experience(jobDescription)
+        
+        if current_experience > -1 and experience_required > current_experience + found_masters:
+            skipMessage = f'\\n{jobDescription}\\n\\nExperience required {experience_required} > Maximum Experience {current_experience + found_masters}. Skipping this job!\\n'
+            skipReason = "Required experience is high"
             skip = True
-        if not skip:
-            if did_masters and 'master' in jobDescriptionLow:
-                print_lg(f'Found the word "master" in \n{jobDescription}')
-                found_masters = 2
-            experience_required = extract_years_of_experience(jobDescription)
-            if current_experience > -1 and experience_required > current_experience + found_masters:
-                skipMessage = f'\n{jobDescription}\n\nExperience required {experience_required} > Maximum Experience {current_experience + found_masters}. Skipping this job!\n'
-                skipReason = "Required experience is high"
-                skip = True
-            elif min_experience > 0 and experience_required > 0 and experience_required < min_experience:
-                skipMessage = f'\n{jobDescription}\n\nExperience required {experience_required} < Minimum Experience {min_experience}. Skipping this job!\n'
-                skipReason = "Required experience is low"
-                skip = True
+        elif min_experience > 0 and experience_required > 0 and experience_required < min_experience:
+            skipMessage = f'\\n{jobDescription}\\n\\nExperience required {experience_required} < Minimum Experience {min_experience}. Skipping this job!\\n'
+            skipReason = "Required experience is low"
+            skip = True
+            
     except Exception as e:
         if jobDescription == "Unknown":    print_lg("Unable to extract job description!")
         else:
             experience_required = "Error in extraction"
             print_lg("Unable to extract years of experience required!")
-            # print_lg(e)
     
     return jobDescription, experience_required, skip, skipReason, skipMessage
         
@@ -2918,10 +2913,30 @@ def run_applications(search_terms: list[str]) -> None:
 
                     description, experience_required, skip, reason, message = get_job_description()
                     _rel_score: int | None = None
+                    
+                    # --- Deterministic Matcher (P8) ---
+                    matcher_config = {
+                        "bad_words": bad_words,
+                        "blacklisted_companies": blacklisted_companies,
+                        "security_clearance": security_clearance,
+                        "min_job_relevance_score": min_job_relevance_score
+                    }
+                    decision = evaluate_job(job_id, title, company, description, matcher_config, master_resume_data)
+                    
+                    if decision["skip"] and not skip:
+                        skip = True
+                        reason = decision["skip_reason"]
+                        message = decision.get("skip_message", "")
+                        print_lg(f"-- Deterministic hard filter triggered: {reason}")
+                    
+                    if not skip and decision["deterministic_score"] >= 85:
+                        print_lg(f"-- Deterministic score is {decision['deterministic_score']} (>= 85). Auto-approving, bypassing AI.")
+                        _rel_score = decision["deterministic_score"]
+                        skip = False
 
                     # --- Automated Resume Tailoring Hook ---
-                    if not skip and use_AI and description != "Unknown" and master_resume_data:
-                        print_lg(f"-- Evaluating job relevance for {company} | {title}")
+                    if not skip and use_AI and decision["requires_ai"] and description != "Unknown" and master_resume_data:
+                        print_lg(f"-- Evaluating job relevance for {company} | {title} via AI")
                         relevance = ai_call('check_relevance', aiClient, description, json.dumps(master_resume_data))
                         if isinstance(relevance, dict) and relevance.get("error") != "offline_mode":
                             ms = relevance.get("match_score")
