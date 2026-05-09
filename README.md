@@ -67,3 +67,8 @@ That opens Chrome/Chromium and applies using `config/`. Login, logs, filters, an
 ---
 
 **Heads up:** `config/secrets.py` is gitignored — do not commit it. Automating LinkedIn may violate their ToS; use at your own risk.
+
+## Known Issues & Recent Fixes
+- **Fixed:** `'NoneType' object has no attribute 'find_element'` during date posted extraction.
+- **Fixed:** Strict Easy Apply button selectors to prevent Workday tabs from opening.
+- **Fixed:** Missing `config` imports during AI offline fallback.

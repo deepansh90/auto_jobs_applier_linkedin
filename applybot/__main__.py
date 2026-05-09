@@ -2877,8 +2877,9 @@ def run_applications(search_terms: list[str]) -> None:
                     # Hiring Manager info
                     try:
                         hr_info_card = WebDriverWait(driver,2).until(EC.presence_of_element_located((By.CLASS_NAME, "hirer-card__hirer-information")))
-                        hr_link = hr_info_card.find_element(By.TAG_NAME, "a").get_attribute("href")
-                        hr_name = hr_info_card.find_element(By.TAG_NAME, "span").text
+                        if hr_info_card:
+                            hr_link = hr_info_card.find_element(By.TAG_NAME, "a").get_attribute("href")
+                            hr_name = hr_info_card.find_element(By.TAG_NAME, "span").text
                         # if connect_hr:
                         #     driver.switch_to.new_window('tab')
                         #     driver.get(hr_link)
@@ -2904,12 +2905,13 @@ def run_applications(search_terms: list[str]) -> None:
                     try:
                         # try: time_posted_text = find_by_class(driver, "jobs-unified-top-card__posted-date", 2).text
                         # except: pass
-                        time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
-                        print("Time Posted: " + time_posted_text)
-                        if time_posted_text.__contains__("Reposted"):
-                            reposted = True
-                            time_posted_text = time_posted_text.replace("Reposted", "")
-                        date_listed = calculate_date_posted(time_posted_text.strip())
+                        if jobs_top_card:
+                            time_posted_text = jobs_top_card.find_element(By.XPATH, './/span[contains(normalize-space(), " ago")]').text
+                            print("Time Posted: " + time_posted_text)
+                            if time_posted_text.__contains__("Reposted"):
+                                reposted = True
+                                time_posted_text = time_posted_text.replace("Reposted", "")
+                            date_listed = calculate_date_posted(time_posted_text.strip())
                     except Exception as e:
                         print_lg("Failed to calculate the date posted!",e)
 
