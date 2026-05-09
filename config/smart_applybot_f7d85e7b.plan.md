@@ -10,7 +10,7 @@ todos:
     status: partial
   - id: p2-resume-first-wizard
     content: P2 — New 5-step Flask wizard that extracts resume first, edits inline, generates personals/questions/answers/custom_questions and detects local LLM.
-    status: pending
+    status: completed
   - id: p3-config-overlay-and-doctor
     content: P3 — Fix default_resume_path overlay, ensure_profile import order, validator compat fallback, and add runAiBot --doctor.
     status: partial
