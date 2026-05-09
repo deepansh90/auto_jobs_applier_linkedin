@@ -2007,6 +2007,9 @@ def _ai_answer_select_label(
         # Patch 6: Even without AI, answer binary questions with a safe default
         _lower_opts = {o.strip().lower() for o in opts if o.strip()}
         if _lower_opts and _lower_opts <= {"yes", "no"}:
+            _low_label = label_org.lower()
+            if any(k in _low_label for k in ["sponsor", "visa", "legal", "citizen", "clearance", "race", "gender", "veteran", "disability", "identity", "ethnic"]):
+                return ""
             return "Yes"
         return ""
     try:
@@ -2205,12 +2208,20 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                             except NoSuchElementException:
                                 foundOption = False
                     if not foundOption:
-                        n_opts = len(select.options)
-                        if n_opts > 1:
-                            select.select_by_index(1)
-                            answer = select.first_selected_option.text
-                        print_lg(f"[WARN] No match for dropdown '{label_org}', defaulting to first available option: '{answer}'")
-                        randomly_answered_questions.add((f'{label_org} [ {optionsText} ]', "select — FALLBACK (index 1)"))
+                        _low_label = label_org.lower()
+                        # High risk categories that we should never guess blindly
+                        _high_risk = any(k in _low_label for k in ["sponsor", "visa", "legal", "citizen", "clearance", "race", "gender", "veteran", "disability", "identity", "ethnic"])
+                        if _high_risk:
+                            print_lg(f"[WARN] High-risk dropdown '{label_org}' unmatched. Leaving blank instead of guessing.")
+                            randomly_answered_questions.add((f'{label_org} [ {optionsText} ]', "select — HIGH RISK UNANSWERED"))
+                            answer = ""
+                        else:
+                            n_opts = len(select.options)
+                            if n_opts > 1:
+                                select.select_by_index(1)
+                                answer = select.first_selected_option.text
+                            print_lg(f"[WARN] No match for dropdown '{label_org}', defaulting to first available option: '{answer}'")
+                            randomly_answered_questions.add((f'{label_org} [ {optionsText} ]', "select — FALLBACK (index 1)"))
             # Patch 1B + 2B: Record actual post-interaction value, not uninitialised default.
             # When the answer block was skipped (prev was already set), use prev_answer.
             # When the answer block ran, re-read the actual selection for accuracy.
@@ -2927,8 +2938,30 @@ def run_applications(search_terms: list[str]) -> None:
                                 continue
 
                         if isinstance(relevance, dict) and relevance.get("error") == "offline_mode":
-                            print_lg("-- OFFLINE MODE: Skipping AI relevance check; applying without filtering.")
-                            relevance = {}
+                            try:
+                                from config.settings import offline_mode_strategy
+                                strat = offline_mode_strategy
+                            except ImportError:
+                                strat = "skip_all"
+                            if strat == "skip_all":
+                                print_lg("-- OFFLINE MODE: AI unavailable and offline_mode_strategy is 'skip_all'. Skipping job.")
+                                skip = True
+                                skip_count += 1
+                                failed_job(job_id, job_link, resume, date_listed, "AI Offline", Exception("Skipped due to offline_mode_strategy"), "Skipped", screenshot_name)
+                                continue
+                            elif strat == "pause":
+                                print_lg("-- OFFLINE MODE: AI unavailable. Pausing for manual review.")
+                                decision = smart_confirm("AI is offline. Do you want to apply to this job?", "AI Offline", ["Skip", "Apply"])
+                                if decision == "Skip":
+                                    skip = True
+                                    skip_count += 1
+                                    failed_job(job_id, job_link, resume, date_listed, "AI Offline", Exception("Skipped by user"), "Skipped", screenshot_name)
+                                    continue
+                                else:
+                                    relevance = {}
+                            else:
+                                print_lg("-- OFFLINE MODE: Skipping AI relevance check; applying without filtering (apply_all).")
+                                relevance = {}
                         elif isinstance(relevance, dict) and relevance.get("match_score", 0) >= 85:
                             print_lg(f"---- HIGH MATCH DETECTED ({relevance['match_score']}%)! Generating tailored resume...")
                             tailored_data = ai_call('generate_resume', aiClient, description, json.dumps(master_resume_data))
@@ -2990,7 +3023,10 @@ def run_applications(search_terms: list[str]) -> None:
                     uploaded = False
                     pre_submit_skip = False
                     # Case 1: Easy Apply Button
-                    if try_xp(driver, ".//button[@id='jobs-apply-button-id' or (contains(@class,'jobs-apply-button') and contains(@aria-label, 'Easy'))]"):
+                    # Use a strict XPath to ensure we only click Easy Apply buttons, 
+                    # preventing clicks on generic 'Apply' buttons that open external tabs (e.g., Workday).
+                    easy_xpath = ".//button[contains(@class, 'jobs-apply-button') and (contains(normalize-space(), 'Easy Apply') or contains(@aria-label, 'Easy'))]"
+                    if try_xp(driver, easy_xpath):
                         modal = None
                         try: 
                             try:
@@ -3557,4 +3593,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--doctor":
+        from applybot.validator import validate_config
+        print("[INFO] Running config validation (--doctor)...")
+        try:
+            validate_config()
+            print("[OK] Configuration valid.")
+            sys.exit(0)
+        except Exception as e:
+            print(f"[ERROR] Validation failed: {e}")
+            sys.exit(1)
     main()

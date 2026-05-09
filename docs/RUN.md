@@ -154,7 +154,7 @@ Screenshots and JSONL can contain **PII**; paths are under gitignored `history/`
 
 ## 7. Live E2E (optional regression)
 
-Opt-in only (`RUN_LINKEDIN_E2E=1`). Runs the real browser against LinkedIn and asserts the applications CSV grew by at least **5** rows by default (`LINKEDIN_E2E_MIN_APPLIES` / `MAX_APPLIED_JOBS`). Uses `APPLYBOT_HEADLESS_UI=1` so dialogs do not block on stdin.
+Opt-in only (`RUN_LINKEDIN_E2E=1`). Runs the real browser against LinkedIn and asserts the applications CSV grew by at least **10** rows by default (`LINKEDIN_E2E_MIN_APPLIES` / `MAX_APPLIED_JOBS`). Uses `APPLYBOT_HEADLESS_UI=1` so dialogs do not block on stdin. The pytest harness also sets **`APPLYBOT_E2E_FAST_CYCLE=1`** on the bot subprocess so the normal **10 minute** post-cycle sleep inside `run()` is skipped (otherwise a 10-apply cap can still take hours across search-term cycles).
 
 The pytest harness sets **`APPLYBOT_PRE_SUBMIT_DUMP`** to a temp JSONL file: before each final **Submit application** click, the bot appends a line with visible `input` / `textarea` / `select` values for a quick sanity check (name or phone substring). LinkedIn’s DOM varies; spot-check the real confirmation UI when in doubt.
 
@@ -163,11 +163,11 @@ Use the **venv’s** `python` (not bare `python3` on macOS, which may stay on Ho
 ```bash
 ./venv/bin/python -m pip install -r requirements.txt
 export RUN_LINKEDIN_E2E=1
-export MAX_APPLIED_JOBS=5
-export LINKEDIN_E2E_MIN_APPLIES=5
+export MAX_APPLIED_JOBS=10
+export LINKEDIN_E2E_MIN_APPLIES=10
 export APPLYBOT_HEADLESS_UI=1
 export LINKEDIN_E2E_TIMEOUT_SEC=7200
-./venv/bin/python -m pytest tests/e2e/test_live_linkedin_e2e.py -v
+./venv/bin/python -m pytest -s tests/e2e/test_live_linkedin_e2e.py -v
 ```
 
 Do not paste trailing comments on the same line as `pip install` in zsh; a broken paste can leave `installs` as a stray command.

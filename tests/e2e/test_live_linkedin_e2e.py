@@ -10,11 +10,12 @@ Requirements:
   - LinkedIn session that can complete Easy Apply flows.
   - `APPLYBOT_HEADLESS_UI=1` is injected so alerts do not block on stdin.
 
-The test sets `APPLYBOT_PRE_SUBMIT_DUMP` to a temp JSONL file and checks that
-snapshots exist and contain at least one of first name, last name, or last four
+The test sets ``APPLYBOT_PRE_SUBMIT_DUMP`` to a temp JSONL file, ``PYTHONUNBUFFERED=1`` for live logs,
+``APPLYBOT_E2E_FAST_CYCLE=1`` to skip the bot's normal **10 minute** post-cycle sleep (so 10 applies can finish within the timeout),
+and checks that snapshots exist and contain at least one of first name, last name, or last four
 digits of phone (best-effort; LinkedIn DOM varies).
 
-Set `MAX_APPLIED_JOBS` and `LINKEDIN_E2E_MIN_APPLIES` (defaults align at 5) so the
+Set `MAX_APPLIED_JOBS` and `LINKEDIN_E2E_MIN_APPLIES` (defaults align at **10**) so the
 assertion and the bot cap stay in sync.
 """
 
@@ -96,7 +97,7 @@ def test_live_linkedin_at_least_min_new_applications_in_csv() -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
 
     before = _applied_row_count(csv_path)
-    min_new = max(1, int(os.environ.get("LINKEDIN_E2E_MIN_APPLIES", "5")))
+    min_new = max(1, int(os.environ.get("LINKEDIN_E2E_MIN_APPLIES", "10")))
     cap = max(min_new, int(os.environ.get("MAX_APPLIED_JOBS", str(min_new))))
 
     fd, dump_path_str = tempfile.mkstemp(prefix="pre_submit_", suffix=".jsonl", dir=str(ROOT))
@@ -107,12 +108,14 @@ def test_live_linkedin_at_least_min_new_applications_in_csv() -> None:
     env["MAX_APPLIED_JOBS"] = str(cap)
     env["APPLYBOT_HEADLESS_UI"] = "1"
     env["APPLYBOT_PRE_SUBMIT_DUMP"] = dump_path_str
+    env["PYTHONUNBUFFERED"] = "1"
+    env["APPLYBOT_E2E_FAST_CYCLE"] = "1"
 
     timeout_s = int(os.environ.get("LINKEDIN_E2E_TIMEOUT_SEC", str(2 * 60 * 60)))
 
     try:
         proc = subprocess.run(
-            [sys.executable, str(RUN_BOT)],
+            [sys.executable, "-u", str(RUN_BOT)],
             cwd=str(ROOT),
             env=env,
             timeout=timeout_s,

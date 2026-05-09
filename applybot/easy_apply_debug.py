@@ -131,12 +131,16 @@ def append_submitted_qa_jsonl(
     questions_snapshot: list[dict[str, Any]],
 ) -> None:
     """Append one line: job id/link + questions only (no DOM)."""
-    rec = {
+    rec: dict[str, Any] = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "job_id": job_id,
         "job_link": job_link,
         "questions": questions_snapshot,
     }
+    if not questions_snapshot:
+        rec["questions_note"] = (
+            "empty_tracked_fields_common_on_final_review_step_or_modal_closed_early"
+        )
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     with p.open("a", encoding="utf-8") as f:

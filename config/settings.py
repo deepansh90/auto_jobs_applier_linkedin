@@ -19,7 +19,7 @@ run_in_background = False          # True or False, Note: True or False are case
 pause_before_submit = False         # True or False, Note: True or False are case-sensitive
 
 # Pause before submitting the first N applications to build trust
-confirm_first_n_applications = 3    # Set to 0 to disable
+confirm_first_n_applications = 0    # Set to 0 to disable
 
 # If you want to disable extensions then set disable_extensions as True (Better for performance)
 disable_extensions = True          # True or False, Note: True or False are case-sensitive
@@ -63,6 +63,9 @@ pause_after_filters = False          # Set to True if you want to verify results
 # /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --remote-debugging-port=9222
 use_existing_browser = False       
 debugger_port = 9222                
+
+# Strategy when AI is offline. Options: "pause", "skip_all", "apply_all"
+offline_mode_strategy = "skip_all"
 
 
 # Do you want to see AI-related error alerts?

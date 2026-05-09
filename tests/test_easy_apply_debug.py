@@ -48,3 +48,11 @@ def test_append_submitted_qa_jsonl(tmp_path: Path) -> None:
     assert rec["job_id"] == "9"
     assert rec["questions"] == snap
     assert "fields" not in rec
+
+
+def test_append_submitted_qa_jsonl_empty_questions_adds_note(tmp_path: Path) -> None:
+    path = str(tmp_path / "qa_empty.jsonl")
+    append_submitted_qa_jsonl(path, "1", "https://example.com/1", [])
+    rec = json.loads(Path(path).read_text(encoding="utf-8").strip())
+    assert rec["questions"] == []
+    assert "questions_note" in rec

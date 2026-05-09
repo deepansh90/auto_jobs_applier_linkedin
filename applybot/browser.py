@@ -83,30 +83,46 @@ def cleanup_zombie_processes():
     """
     Search for and terminate orphaned chromedriver or undetected_chromedriver 
     processes to prevent dock clutter and profile locks.
+
+    Never terminate chromedriver/Chrome processes that belong to *this* Python
+    process tree — doing so breaks the active session (connection refused on
+    the next WebDriver command).
     """
     print_lg("Cleaning up any leftover browser processes...")
     current_pid = os.getpid()
+    own_descendants: set[int] = set()
+    try:
+        me = psutil.Process(current_pid)
+        own_descendants = {c.pid for c in me.children(recursive=True)}
+    except Exception:
+        own_descendants = set()
+
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
+            pid = proc.info['pid']
+            if pid == current_pid:
+                continue
+            # Live automation stack for this run — never kill.
+            if pid in own_descendants:
+                continue
+
             # Look for chromedriver or undetected_chromedriver
             name = proc.info['name'].lower()
             cmdline = " ".join(proc.info['cmdline'] or [])
             
             if 'chromedriver' in name or 'undetected' in name:
-                # Don't kill ourselves or our immediate children if we were careful
-                if proc.info['pid'] != current_pid:
-                    print_lg(f"Terminating zombie driver process: {proc.info['pid']} ({name})")
-                    proc.terminate()
+                print_lg(f"Terminating zombie driver process: {pid} ({name})")
+                proc.terminate()
             
             # Kill any Chrome/Chromium (headless or not) that is holding the bot's isolated profile
             # (e.g. leftover warm-up window or crashed previous run) — it would block attach.
             if ('chrome' in name or 'chromium' in name) and (
                 'auto-job-apply-profile' in cmdline or 'chromium-auto-job' in cmdline
             ):
-                 print_lg(f"Terminating leftover Chrome on bot profile: {proc.info['pid']}")
+                 print_lg(f"Terminating leftover Chrome on bot profile: {pid}")
                  proc.terminate()
 
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ProcessLookupError, psutil.ZombieProcess):
             pass
 
     # Clear stale Singleton lock files in the bot profile dir — they block Chrome from launching

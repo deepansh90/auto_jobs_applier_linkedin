@@ -35,7 +35,8 @@ def wait_span_click(driver: WebDriver, text: str, time: float=5.0, click: bool=T
         last_exc = None
         for xp in fallback_xpaths:
             try:
-                button = WebDriverWait(driver, time).until(EC.presence_of_element_located((By.XPATH, xp)))
+                condition = EC.element_to_be_clickable((By.XPATH, xp)) if click else EC.presence_of_element_located((By.XPATH, xp))
+                button = WebDriverWait(driver, time).until(condition)
                 if button:
                     break
             except Exception as e:
