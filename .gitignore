@@ -35,4 +35,4 @@ temp/
 scratch/
 claude integration
 debug_output.txt
-auto-job-apply-profile/
+auto-job-apply-profile/config/learned_answers.json

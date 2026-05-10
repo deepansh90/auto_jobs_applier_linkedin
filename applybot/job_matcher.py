@@ -113,15 +113,15 @@ def evaluate_job(job_id, title, company, description, config, master_resume=None
     
     # 3. Apply Thresholds
     threshold = config.get("min_job_relevance_score", 50)
-    if score >= 85:
+    if score >= 75:
         # Excellent match deterministically, bypass AI if needed
         decision["skip"] = False
         decision["skip_reason"] = "Deterministic Auto-Approve"
         decision["requires_ai"] = False
-    elif score < 20:
+    elif score < 25:
         # Terrible match deterministically
         decision["skip"] = True
-        decision["skip_reason"] = f"Deterministic Score Too Low ({score} < 20)"
+        decision["skip_reason"] = f"Deterministic Score Too Low ({score} < 25)"
         decision["skip_message"] = f"Deterministic match score is very low ({score})."
         decision["requires_ai"] = False
     else:

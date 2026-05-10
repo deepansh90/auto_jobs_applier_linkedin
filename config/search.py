@@ -4,7 +4,7 @@
 
 # These Sentences are Searched in LinkedIn
 # Enter your search terms inside '[ ]' with quotes ' "searching title" ' for each search followed by comma ', ' Eg: ["Software Engineer", "Software Developer", "Selenium Developer"]
-search_terms = ["Lead Engineer", "Staff Engineer", "Principal Engineer", "Engineering Manager"]
+search_terms = ["Staff Engineer", "Lead Developer", "Principal Engineer", "Engineering Manager"]
 
 # Search location, this will be filled in "City, state, or zip code" search box. If left empty as "", tool will not fill it.
 search_location = "Noida, Uttar Pradesh, India"               # Some valid examples: "", "United States", "India", "Chicago, Illinois, United States", "90001, Los Angeles, California, United States", "Bengaluru, Karnataka, India", etc.
