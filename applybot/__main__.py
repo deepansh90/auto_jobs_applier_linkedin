@@ -37,9 +37,39 @@ from applybot.job_matcher import evaluate_job
 from config.settings import min_job_relevance_score
 from applybot.answer_router import get_answer_from_router, save_learned_answer
 
-from config.search import *
-from config.secrets import use_AI, username, password, ai_provider, llm_api_key
-from config.settings import *
+try:
+    from config.search import *
+except ImportError:
+    # Minimal fallback for CI
+    search_terms = []
+    search_location = ""
+    randomize_search_order = False
+    about_company_bad_words = []
+    about_company_good_words = []
+    bad_words = []
+    security_clearance = False
+    did_masters = False
+    current_experience = -1
+    min_experience = 0
+
+try:
+    from config.secrets import use_AI, username, password, ai_provider, llm_api_key
+except ImportError:
+    # CI Fallback: no AI, no credentials
+    use_AI = False
+    username = ""
+    password = ""
+    ai_provider = "openai"
+    llm_api_key = ""
+
+try:
+    from config.settings import *
+except ImportError:
+    # Minimal fallback for CI
+    max_applied_jobs = 15
+    randomize_wait_times = True
+    follow_companies = False
+    min_job_relevance_score = 30
 
 # Allow CI / E2E harness to cap applies without editing committed settings.
 _maj_env = (os.environ.get("MAX_APPLIED_JOBS") or "").strip()
