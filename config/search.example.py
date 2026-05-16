@@ -4,8 +4,10 @@
 
 # These Sentences are Searched in LinkedIn
 # Enter your search terms inside '[ ]' with quotes ' "searching title" ' for each search followed by comma ', ' Eg: ["Software Engineer", "Software Developer", "Selenium Developer"]
-search_terms = ["Software Engineer"]
-search_location = "United States"               # Some valid examples: "", "United States", "India", "Chicago, Illinois, United States", "90001, Los Angeles, California, United States", "Bengaluru, Karnataka, India", etc.
+search_terms = ["Staff Engineer", "Lead Developer", "Principal Engineer", "Engineering Manager"]
+
+# Search location, this will be filled in "City, state, or zip code" search box. If left empty as "", tool will not fill it.
+search_location = "Noida, Uttar Pradesh, India"               # Some valid examples: "", "United States", "India", "Chicago, Illinois, United States", "90001, Los Angeles, California, United States", "Bengaluru, Karnataka, India", etc.
 
 
 ''' 
@@ -18,7 +20,7 @@ question_3 = []                    # (dynamic multiple select)
 '''
 
 sort_by = "Most recent"            # "Most recent", "Most relevant" or ("" to not select) 
-date_posted = "Past 24 hours"         # "Any time", "Past month", "Past week", "Past 24 hours" or ("" to not select)
+date_posted = "Past month"         # "Any time", "Past month", "Past week", "Past 24 hours" or ("" to not select)
 salary = ""                        # "$40,000+", "$60,000+", "$80,000+", "$100,000+", "$120,000+", "$140,000+", "$160,000+", "$180,000+", "$200,000+"
 
 # True = only Easy Apply jobs (adds f_EA=true to the job search URL and toggles Easy Apply in All filters). False = include non–Easy Apply listings too.
@@ -68,7 +70,7 @@ security_clearance = False         # True or False, Note: True or False are case
 did_masters = True                 # True or False, Note: True or False are case-sensitive
 
 # Avoid applying to jobs if their required experience is above your current_experience. (Set value as -1 if you want to apply to all ignoring their required experience...)
-current_experience = 5             # Minimum experience (E.g. 5, 10, 15...)
+current_experience = 15             # Minimum experience (E.g. 5, 10, 15...)
 min_experience = 5                 # Minimum years of experience required by the job (skip if less)
 ##
 

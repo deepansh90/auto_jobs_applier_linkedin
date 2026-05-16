@@ -45,7 +45,7 @@ def check_hard_filters(title, company, description, config):
 
     return False, "", ""
 
-def score_job_match(title, description, master_resume):
+def score_job_match(title, description, master_resume, config=None):
     """
     Computes a deterministic match score based on skills, title matches, and seniority.
     Returns a score between 0 and 100.
@@ -57,26 +57,63 @@ def score_job_match(title, description, master_resume):
     desc_low = description.lower()
     title_low = title.lower()
     
-    # Title matching
-    desired_titles = master_resume.get("title", "").split(",")
+    # Title matching: Use headline/title from resume AND search terms from config
+    p_info = master_resume.get("personal_info", {})
+    desired_titles_raw = p_info.get("title") or p_info.get("headline") or master_resume.get("title") or master_resume.get("summary_master", "")
+    
+    desired_titles = []
+    if desired_titles_raw:
+        if isinstance(desired_titles_raw, list):
+            desired_titles.extend(desired_titles_raw)
+        else:
+            # Split on comma, pipe, or slash
+            desired_titles.extend([t.strip() for t in re.split(r'[,|/]', str(desired_titles_raw)) if t.strip()])
+    
+    # Add search terms from config as potential matches
+    if config:
+        search_terms = config.get("search_terms", [])
+        if isinstance(search_terms, list):
+            desired_titles.extend(search_terms)
+
     for dt in desired_titles:
-        if dt.strip().lower() in title_low:
-            score += 20
+        dt_low = dt.lower()
+        # Flexible match: check if all words in dt are present in title_low
+        dt_words = [w for w in re.split(r'\s+', dt_low) if len(w) > 2]
+        if dt_words and all(word in title_low for word in dt_words):
+            score += 30
+            break
+        # Also keep the exact substring match for short titles
+        if dt_low in title_low:
+            score += 30
             break
             
-    # Skill matching
-    skills = master_resume.get("skills", [])
-    skills_matched = 0
-    for skill in skills:
-        skill_clean = skill.strip().lower()
-        # Look for the exact skill as a whole word
-        if re.search(r"\b" + re.escape(skill_clean) + r"\b", desc_low):
-            skills_matched += 1
+    # Seniority/Role Keyword match (bonus points if not already capped)
+    if score < 30:
+        seniority_keywords = ["lead", "staff", "principal", "senior", "manager", "architect", "head", "director", "vp"]
+        if any(w in title_low for w in seniority_keywords):
+            score += 15
             
+    # Skill matching
+    # New format: master_resume["skills"]["technologies"] (list)
+    # Legacy format: master_resume["skills"] (list)
+    skills_raw = master_resume.get("skills", [])
+    if isinstance(skills_raw, dict):
+        skills = skills_raw.get("technologies") or skills_raw.get("skills") or []
+    else:
+        skills = skills_raw
+        
+    skills_matched = 0
     if skills:
-        # Max 40 points from skills
+        for skill in skills:
+            skill_clean = str(skill).strip().lower()
+            if not skill_clean: continue
+            # Look for the exact skill as a whole word
+            if re.search(r"\b" + re.escape(skill_clean) + r"\b", desc_low):
+                skills_matched += 1
+            
+        # Max 70 points from skills (total 100 with title)
         skill_ratio = skills_matched / len(skills)
-        score += int(skill_ratio * 40)
+        score += int(skill_ratio * 70)
         
     return min(100, score)
 
@@ -108,7 +145,7 @@ def evaluate_job(job_id, title, company, description, config, master_resume=None
         return decision
         
     # 2. Deterministic Scoring
-    score = score_job_match(title, description, master_resume)
+    score = score_job_match(title, description, master_resume, config)
     decision["deterministic_score"] = score
     
     # 3. Apply Thresholds
@@ -118,10 +155,10 @@ def evaluate_job(job_id, title, company, description, config, master_resume=None
         decision["skip"] = False
         decision["skip_reason"] = "Deterministic Auto-Approve"
         decision["requires_ai"] = False
-    elif score < 25:
+    elif score < threshold:
         # Terrible match deterministically
         decision["skip"] = True
-        decision["skip_reason"] = f"Deterministic Score Too Low ({score} < 25)"
+        decision["skip_reason"] = f"Deterministic Score Too Low ({score} < {threshold})"
         decision["skip_message"] = f"Deterministic match score is very low ({score})."
         decision["requires_ai"] = False
     else:

@@ -6,6 +6,7 @@ config/custom_questions.py
 config/questions.py
 config/profile.json
 config/answers.py
+config/learned_answers.json
 
 config/user.settings.json
 config/.setup_complete

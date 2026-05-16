@@ -13,10 +13,9 @@ generated_resume_path = "all resumes/"
 click_gap = 2                      # Enter max allowed secs to wait approximately. (Only Non Negative Integers Eg: 0,1,2,3,....)
 
 # If you want to see Chrome running then set run_in_background as False (May reduce performance). 
-run_in_background = False          # True or False, Note: True or False are case-sensitive ,   If True, this will make pause_at_failed_question, pause_before_submit and run_in_background as False
+run_in_background = False          # True or False. If True, this will make pause_at_failed_question, pause_before_submit (in questions.py) and run_in_background as False
 
-# Should the tool pause before every submit application during easy apply to let you check the information?
-pause_before_submit = False         # True or False, Note: True or False are case-sensitive
+# NOTE: pause_before_submit has been moved to config/questions.py to avoid duplication.
 
 # Pause before submitting the first N applications to build trust
 confirm_first_n_applications = 0    # Set to 0 to disable

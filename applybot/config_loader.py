@@ -42,7 +42,7 @@ def apply_user_overlay():
         "on_site": "config.search",
         "current_experience": "config.search",
         "experience_level": "config.search",
-        "default_resume_path": "config.settings",
+        "default_resume_path": "config.questions",
         "follow_companies": "config.settings",
         "desired_salary": "config.questions",
         "years_of_experience": "config.questions",

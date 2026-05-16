@@ -113,14 +113,25 @@ def _regex_fallback(text: str) -> dict[str, Any]:
     return profile
 
 
-def _ai_extract(text: str) -> dict[str, Any] | None:
+def _ai_extract(text: str, provider: str | None = None, key: str | None = None) -> dict[str, Any] | None:
     """Try Gemini -> OpenAI; return parsed dict or None."""
     prompt = f"Extract a structured profile from this resume text.\n{PROFILE_SCHEMA_HINT}\n\nResume text:\n{text[:8000]}"
 
     try:
-        from config.secrets import llm_api_key
-        if llm_api_key and "YOUR_API_KEY" not in str(llm_api_key):
+        if not key:
+            try:
+                from config.secrets import llm_api_key
+                key = llm_api_key
+            except ImportError:
+                key = None
+
+        if key and "YOUR_API_KEY" not in str(key):
             from applybot.ai.geminiConnections import gemini_create_client, gemini_completion
+            # Temporarily inject key if passed
+            if key:
+                os.environ["GEMINI_API_KEY"] = key
+                os.environ["LLM_API_KEY"] = key
+            
             client = gemini_create_client()
             if client:
                 result = gemini_completion(client, prompt, is_json=True)
@@ -152,7 +163,7 @@ def _merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def ensure_profile(config_dir: str, resume_path: str) -> dict[str, Any]:
+def ensure_profile(config_dir: str, resume_path: str, ai_provider: str | None = None, api_key: str | None = None) -> dict[str, Any]:
     """
     Ensure config/profile.json exists. Returns the loaded profile.
     - If the file exists: load and return it (no re-extraction).
@@ -174,14 +185,13 @@ def ensure_profile(config_dir: str, resume_path: str) -> dict[str, Any]:
         text = _extract_pdf_text(resume_path)
         profile = _empty_profile()
         if text:
-            ai_profile = _ai_extract(text)
+            profile = _merge(profile, _regex_fallback(text))
+            ai_profile = _ai_extract(text, provider=ai_provider, key=api_key)
             if ai_profile:
                 profile = _merge(profile, ai_profile)
                 print_lg("[autofill] AI-based profile extraction succeeded.")
             else:
-                regex_profile = _regex_fallback(text)
-                profile = _merge(profile, regex_profile)
-                print_lg("[autofill] AI unavailable; used regex fallback. Please review config/profile.json.")
+                print_lg("[autofill] AI extraction failed or key missing; using regex fallback.")
 
     try:
         os.makedirs(config_dir, exist_ok=True)

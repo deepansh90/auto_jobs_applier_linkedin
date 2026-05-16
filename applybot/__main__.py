@@ -1754,6 +1754,8 @@ def _click_submit_easy_apply_final() -> bool:
     from applybot.submit_button_helpers import button_text_suggests_final_submit
 
     modal_xps = [
+        './/div[contains(@class,"jobs-easy-apply-footer")]//button[contains(@class, "artdeco-button--primary")]',
+        './/footer//button[contains(@class, "artdeco-button--primary")]',
         './/div[contains(@class,"jobs-easy-apply-footer")]//button[contains(normalize-space(.),"Submit")]',
         './/footer//button[contains(normalize-space(.),"Submit")]',
         './/button[contains(normalize-space(.), "Submit application")]',
@@ -1825,6 +1827,8 @@ def _click_submit_easy_apply_final() -> bool:
         sleep(0.55)
 
     doc_xps = [
+        '//div[contains(@class,"jobs-easy-apply-footer")]//button[contains(@class, "artdeco-button--primary")]',
+        '//footer//button[contains(@class, "artdeco-button--primary")]',
         '//button[contains(normalize-space(.), "Submit application")]',
         '//button[.//span[contains(normalize-space(.), "Submit application")]]',
         '//button[contains(@aria-label, "Submit application")]',
@@ -2439,9 +2443,15 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                                 print_lg(f'[Patch7] General experience fallback: answering "{label_org}" with years_of_experience={years_of_experience}')
                                 answer = years_of_experience
                         else:
-                            randomly_answered_questions.add((label_org, "text"))
-                            answer = ""
-                            print_lg(f'[UNANSWERED] No rule or AI for text question "{label_org}" — left blank')
+                            # If it lacks 'experience'/'years' but is clearly numeric (type='number' or has min/max)
+                            is_numeric = text.get_attribute("type") == "number" or text.get_attribute("min") or text.get_attribute("max") or text.get_attribute("type") == "numeric"
+                            if is_numeric:
+                                answer = "1"
+                                print_lg(f"[Patch7] Numeric field '{label_org}' lacks AI answer; defaulting to 1.")
+                            else:
+                                randomly_answered_questions.add((label_org, "text"))
+                                answer = ""
+                                print_lg(f'[UNANSWERED] No rule or AI for text question "{label_org}" — left blank')
                 ##<
                 mn, mx = text.get_attribute("min"), text.get_attribute("max")
                 if mn and str(answer).lstrip("-").isdigit() and int(answer) < int(mn): answer = mn
@@ -2456,14 +2466,14 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                             match = re.search(r"(?:larger than|at least|minimum of|more than)\s+([\d.]+)", err.text.lower())
                             if match:
                                 req_val = float(match.group(1))
-                                if str(answer).replace(".","",1).isdigit():
-                                    if float(answer) < req_val:
-                                        # Set to integer if X was integer, else decimal
-                                        if "." in match.group(1):
-                                            answer = str(req_val + 0.1)
-                                        else:
-                                            answer = str(int(req_val + 1))
-                                        print_lg(f"[Patch8] Adjusted answer for '{label_org}' to {answer} due to error: '{err.text}'")
+                                is_digit = str(answer).replace(".","",1).isdigit()
+                                if not is_digit or float(answer) < req_val:
+                                    # Set to integer if X was integer, else decimal
+                                    if "." in match.group(1):
+                                        answer = str(req_val + 0.1)
+                                    else:
+                                        answer = str(int(req_val + 1))
+                                    print_lg(f"[Patch8] Adjusted answer for '{label_org}' to {answer} due to error: '{err.text}'")
                 except Exception as _patch8_err:
                     pass
                 # --- End Patch 8 ---

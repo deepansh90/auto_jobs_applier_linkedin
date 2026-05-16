@@ -64,6 +64,12 @@ After configuration (wizard or manual), start the bot:
 
 That opens Chrome/Chromium and applies using `config/`. Login, logs, filters, and CLI flags: **[docs/RUN.md](docs/RUN.md)**. Optional **`MAX_APPLIED_JOBS`**, pre-submit screenshots, JSONL dump/audit, and strict skip: **[docs/RUN.md §6](docs/RUN.md#6-run-the-bot-easy-apply)** (subsection *Pre-submit evidence and audit*). Live LinkedIn regression (pytest): **[docs/RUN.md §7](docs/RUN.md#7-live-e2e-optional-regression)**.
 
+### 4. Monitor Logs
+As the bot runs, it will create extensive log files in the `logs/` directory. 
+- You can monitor your application status and see exact counts of skipped vs. applied jobs by checking `logs/session_YYYYMMDD.log` (e.g. `logs/session_20260516.log`).
+- **Applied Jobs**: Logs will print exactly when a job is submitted.
+- **Skipped Jobs**: Logs will clearly state when a job is skipped and which deterministic filter or AI rule was triggered.
+
 ---
 
 **Heads up:** `config/secrets.py` is gitignored — do not commit it. Automating LinkedIn may violate their ToS; use at your own risk.

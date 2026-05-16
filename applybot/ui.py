@@ -55,6 +55,20 @@ def wait_span_click(driver: WebDriver, text: str, time: float=5.0, click: bool=T
                 try:
                     driver.execute_script("arguments[0].click();", button)
                 except Exception as e:
+                    # Final attempt: re-fetch the element if it became stale
+                    try:
+                        for xp in fallback_xpaths:
+                            try:
+                                re_button = driver.find_element(By.XPATH, xp)
+                                if re_button.is_displayed():
+                                    driver.execute_script("arguments[0].click();", re_button)
+                                    print_lg(f"[INFO] Recovered stale click for '{text}' via re-fetch.")
+                                    buffer(click_gap)
+                                    return re_button
+                            except Exception:
+                                continue
+                    except Exception:
+                        pass
                     print_lg(f"Click via JS fallback failed for '{text}': {e}")
                     return False
             buffer(click_gap)
