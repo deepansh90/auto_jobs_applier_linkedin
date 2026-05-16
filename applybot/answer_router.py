@@ -29,11 +29,13 @@ def save_learned_answer(question, answer, status="pending_review"):
         json.dump(answers, f, indent=4)
 
 def _match_keyword(keyword, text):
-    """Case-insensitive substring match."""
+    """Case-insensitive word-boundary match."""
     k = str(keyword).lower().strip()
     t = str(text).lower().strip()
     if not k or not t: return False
-    return k in t or t in k
+    return re.search(r'\b' + re.escape(k) + r'\b', t)
+
+
 
 def get_answer_from_router(question_text, type="text"):
     """

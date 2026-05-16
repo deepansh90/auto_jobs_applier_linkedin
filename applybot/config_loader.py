@@ -27,13 +27,17 @@ def apply_user_overlay():
     # "search_terms" -> "config.search", "search_terms"
     
     # Pre-import targeted modules to ensure they are available in sys.modules
-    import config.search
-    import config.settings
-    import config.secrets
+    try: import config.search
+    except ImportError: pass
+    try: import config.settings
+    except ImportError: pass
+    try: import config.secrets
+    except ImportError: pass
     try: import config.personals
     except ImportError: pass
     try: import config.questions
     except ImportError: pass
+
 
     target_map = {
         "search_terms": "config.search",

@@ -13,7 +13,11 @@ from config.settings import (
     use_chromium,
     chromium_binary_path,
 )
-from config.questions import default_resume_path
+try:
+    from config.questions import default_resume_path
+except ImportError:
+    default_resume_path = ""
+
 if stealth_mode:
     import undetected_chromedriver as uc
 else: 

@@ -27,7 +27,7 @@ def test_setup_wizard_submit(client, tmp_path, monkeypatch):
     payload = {
         "li_username": "test@example.com",
         "li_password": "supersecretpassword",
-        "gemini_key": "AIzaSyTestKey123",
+        "api_key": "AIzaSyTestKey123",
         "search_terms": "Software Engineer, Manager",
         "search_location": "San Francisco, CA",
         "resume_path": "/test/resume.pdf"
@@ -64,7 +64,7 @@ def test_setup_wizard_submit_rejects_invalid_salary(client, tmp_path, monkeypatc
     payload = {
         "li_username": "u@example.com",
         "li_password": "pw",
-        "gemini_key": "",
+        "api_key": "k",
         "search_terms": "Engineer",
         "search_location": "Noida",
         "resume_path": "",
@@ -83,7 +83,7 @@ def test_setup_wizard_secrets_use_python_repr_escaping(client, tmp_path, monkeyp
     payload = {
         "li_username": "user@test.com",
         "li_password": 'pass"with\'quotes',
-        "gemini_key": "k",
+        "api_key": "k",
         "search_terms": "Engineer",
         "search_location": "Noida",
         "resume_path": "",

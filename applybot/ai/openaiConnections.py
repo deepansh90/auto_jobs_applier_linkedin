@@ -1,8 +1,18 @@
 from __future__ import annotations
-from config.secrets import *
+try:
+    from config.secrets import *
+except ImportError:
+    pass
 from config.settings import showAiErrorAlerts
-from config.personals import ethnicity, gender, disability_status, veteran_status
-from config.questions import *
+try:
+    from config.personals import ethnicity, gender, disability_status, veteran_status
+except ImportError:
+    ethnicity = gender = disability_status = veteran_status = ""
+try:
+    from config.questions import *
+except ImportError:
+    pass
+
 
 from applybot.helpers import print_lg, critical_error_log, convert_to_json, smart_confirm
 from applybot.ai.prompts import *

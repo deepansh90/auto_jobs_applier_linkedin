@@ -28,9 +28,10 @@ def test_onboarding_home_includes_success_cli_flow(client):
     r = client.get("/")
     assert r.status_code == 200
     body = r.data.decode("utf-8")
-    assert "runAiBot.py" in body
-    assert "Account Setup Successful" in body
+    assert "python -m applybot" in body
+    assert "All Configurations Generated!" in body
     assert "submitForm" in body
+
 
 
 def test_onboarding_submit_end_to_end_writes_config(client, tmp_path, monkeypatch):
@@ -40,7 +41,7 @@ def test_onboarding_submit_end_to_end_writes_config(client, tmp_path, monkeypatc
     payload = {
         "li_username": "onboard-e2e@example.com",
         "li_password": "onboard-e2e-secret",
-        "gemini_key": "AIzaOnboardE2E",
+        "api_key": "AIzaOnboardE2E",
         "search_terms": "Engineer, Lead",
         "search_location": "Remote",
         "resume_path": "",
@@ -68,7 +69,7 @@ def test_onboarding_submit_without_desired_salary_defaults(client, tmp_path, mon
     payload = {
         "li_username": "u2@example.com",
         "li_password": "pw2",
-        "gemini_key": "",
+        "api_key": "",
         "search_terms": "QA",
         "search_location": "Berlin",
         "resume_path": "",
