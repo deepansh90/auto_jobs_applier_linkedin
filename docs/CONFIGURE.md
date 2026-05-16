@@ -6,7 +6,7 @@
 ./venv/bin/python -m applybot.setup
 ```
 
-Then open **http://127.0.0.1:5000/** (or let the script open it), finish the steps, and run `./venv/bin/python runAiBot.py`.
+Then open **http://127.0.0.1:5000/** (or let the script open it), finish the steps, and run `./venv/bin/python -m applybot`.
 
 ---
 

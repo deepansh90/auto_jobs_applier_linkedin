@@ -1,0 +1,30 @@
+# Cursor Rules for ApplyBot
+
+## 🛠️ Project Structure
+- **Package**: All core logic lives in the `applybot/` package.
+- **Entry Points**: 
+  - `python -m applybot`: Main automation loop.
+  - `python -m applybot.setup`: Local Flask-based setup wizard.
+- **Config**: User-editable configuration lives in `config/`. Files ending in `.example.py` are templates.
+- **Storage**:
+  - `logs/`: Runtime session logs.
+  - `history/`: Application history (CSVs and screenshots).
+
+## 🐍 Coding Standards
+- **Modularization**: Keep functions focused. Avoid large monolithic files (like the old `runAiBot.py`).
+- **Resilience**: When interacting with the browser, always assume the DOM might change. Use `WebDriverWait` and stale-element retry loops.
+- **AI Integration**: Use the unified `get_answer_from_router` in `applybot/answer_router.py` for question answering. Support both Gemini and OpenAI-compatible providers.
+- **Typing**: Use type hints (`from __future__ import annotations`) for all new functions.
+
+## 🧪 Testing
+- **Pytest**: All new features must include a test in the `tests/` directory.
+- **CI Isolation**: Ensure tests can run without `secrets.py` or `personals.py` present (use try-except for config imports in modules).
+- **Markers**: Use `@pytest.mark.e2e` for live LinkedIn tests and exclude them in CI (`-m "not e2e"`).
+
+## 📄 Documentation
+- **Markdown**: Keep `README.md`, `roadmap.md`, and files in `docs/` updated as features are added or modified.
+- **Privacy**: NEVER commit personal data. Always check `.gitignore` before adding new config files.
+
+## 🤖 Interaction Patterns
+- **Structural Locators**: Prefer CSS classes like `artdeco-button--primary` over text-based matching (e.g., "Submit") to ensure stability across A/B tests and languages.
+- **Logging**: Use `print_lg` (from `applybot.helpers`) for all runtime logging to ensure output is captured in session log files.

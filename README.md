@@ -59,10 +59,13 @@ Minimum you must fill: **LinkedIn** email/password in `secrets.py`; **name, phon
 After configuration (wizard or manual), start the bot:
 
 ```bash
-./venv/bin/python runAiBot.py
+./venv/bin/python -m applybot
 ```
 
-That opens Chrome/Chromium and applies using `config/`. Login, logs, filters, and CLI flags: **[docs/RUN.md](docs/RUN.md)**. Optional **`MAX_APPLIED_JOBS`**, pre-submit screenshots, JSONL dump/audit, and strict skip: **[docs/RUN.md §6](docs/RUN.md#6-run-the-bot-easy-apply)** (subsection *Pre-submit evidence and audit*). Live LinkedIn regression (pytest): **[docs/RUN.md §7](docs/RUN.md#7-live-e2e-optional-regression)**.
+(The legacy `runAiBot.py` script also works as an entry point). This opens Chrome/Chromium and starts the application process. 
+
+For advanced usage (CLI flags, screenshots, debugging): **[docs/RUN.md](docs/RUN.md)**.
+
 
 ### 4. Monitor Logs
 As the bot runs, it will create extensive log files in the `logs/` directory. 
@@ -75,6 +78,9 @@ As the bot runs, it will create extensive log files in the `logs/` directory.
 **Heads up:** `config/secrets.py` is gitignored — do not commit it. Automating LinkedIn may violate their ToS; use at your own risk.
 
 ## Known Issues & Recent Fixes
+- **Robust Submission**: Replaced fragile text-based "Submit" matching with structural CSS locators (e.g., `artdeco-button--primary`).
+- **Resilient Navigation**: Added stale-element recovery and retry loops for "Next" and "Review" buttons.
+- **Improved Logging**: Detailed skipping reasons and application counts in `logs/session_YYYYMMDD.log`.
 - **Fixed:** `'NoneType' object has no attribute 'find_element'` during date posted extraction.
-- **Fixed:** Strict Easy Apply button selectors to prevent Workday tabs from opening.
 - **Fixed:** Missing `config` imports during AI offline fallback.
+

@@ -49,7 +49,8 @@ Everything else (name, email, phone, location, LinkedIn, skills, years of experi
 
 ## 3. First Run — Resume Extraction
 
-The first time you run `./venv/bin/python runAiBot.py` (or `python3 runAiBot.py` if your shell’s `python3` is the venv), it:
+The first time you run `./venv/bin/python -m applybot` (or `python3 -m applybot` if your shell’s `python3` is the venv), it:
+
 
 1. Reads `resume.pdf` using `pypdf`.
 2. Asks the AI provider (Gemini by default) to return a JSON profile.
@@ -62,7 +63,7 @@ After the first run you can re-run the extraction by deleting `config/profile.js
 
 ## 4. First-Run Login
 
-`username` / `password` are read from `config/secrets.py` **when the Python process starts**. If you used the setup wizard, save, then **start** `./venv/bin/python runAiBot.py` again so a new process imports the file.
+`username` / `password` are read from `config/secrets.py` **when the Python process starts**. If you used the setup wizard, save, then **start** `./venv/bin/python -m applybot` again so a new process imports the file.
 
 The first run opens a fresh Chromium window and navigates to LinkedIn. You have two options:
 
@@ -77,12 +78,13 @@ The first run opens a fresh Chromium window and navigates to LinkedIn. You have 
 | First-time **onboarding** (web form for LinkedIn + resume + search prefs) | `./venv/bin/python -m applybot.setup` — your browser should open **http://127.0.0.1:5000/**; if not, open it manually. Use `--no-browser` or `APPLYBOT_SETUP_NO_BROWSER=1` to skip auto-open (SSH/CI). |
 | See setup CLI flags | `./venv/bin/python -m applybot.setup --help` |
 | Check setup wiring without starting the server | `./venv/bin/python -m applybot.setup --dry-run` |
-| **Easy Apply** job run (browser automation) | `./venv/bin/python runAiBot.py` |
-| Bot CLI help (no browser) | `./venv/bin/python runAiBot.py --help` |
-| Validate all `config/*.py` and exit | `./venv/bin/python runAiBot.py --validate-config` |
+| **Easy Apply** job run (browser automation) | `./venv/bin/python -m applybot` |
+| Bot CLI help (no browser) | `./venv/bin/python -m applybot --help` |
+| Validate all `config/*.py` and exit | `./venv/bin/python -m applybot --validate-config` |
 | **Onboarding wizard** HTTP checks (CI-safe) | `./venv/bin/python -m pytest tests/e2e/test_onboarding_setup.py -v` |
 
-After **Complete Setup**, copy **`./venv/bin/python runAiBot.py`** from the success screen and run it in a terminal at the repo root (no in-page LinkedIn launch).
+After **Complete Setup**, copy **`./venv/bin/python -m applybot`** from the success screen and run it in a terminal at the repo root (no in-page LinkedIn launch).
+
 
 `--validate-config` and a normal run both require `config/secrets.py`. If it is missing, the CLI exits with code **2** and prints `cp config/secrets.example.py config/secrets.py` on stderr. With `use_AI = False` in `secrets.py`, validation skips LLM URL/key/model checks so you can confirm the rest of the config without API keys.
 
@@ -97,10 +99,10 @@ Live LinkedIn pytest (real applies, pre-submit JSONL dumps): see **[§7 Live E2E
 If you use the venv from [§1](#1-clone-and-install), run the bot with that interpreter (avoids Homebrew `python3` ignoring the venv on macOS):
 
 ```bash
-./venv/bin/python runAiBot.py
+./venv/bin/python -m applybot
 ```
 
-Or activate the venv (`source venv/bin/activate`) and run **`python3 runAiBot.py`** if `which python3` shows `venv/bin/python3`. Many macOS venvs have **no `python` shim** (`command not found: python`); prefer **`./venv/bin/python`** from the repo root. On Windows: `venv\Scripts\python.exe runAiBot.py`.
+Or activate the venv (`source venv/bin/activate`) and run **`python3 -m applybot`** if `which python3` shows `venv/bin/python3`. Many macOS venvs have **no `python` shim** (`command not found: python`); prefer **`./venv/bin/python`** from the repo root. On Windows: `venv\Scripts\python.exe -m applybot`.
 
 The bot will:
 
