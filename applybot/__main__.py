@@ -1822,9 +1822,26 @@ def _click_submit_easy_apply_final() -> bool:
             modal = get_active_modal(5.0 if attempt else 4.0)
         except Exception:
             modal = None
-        if modal is not None and _try_modal(modal):
-            return True
+        if modal is not None:
+            # Check if application has already been sent/submitted (e.g. from the while loop)
+            try:
+                modal_text = modal.text.lower()
+                if any(x in modal_text for x in [
+                    "application was sent",
+                    "application has been sent",
+                    "application sent",
+                    "application submitted",
+                    "application was submitted",
+                    "application has been submitted"
+                ]):
+                    print_lg("[INFO] Detected success screen (already submitted in loop).")
+                    return True
+            except Exception:
+                pass
+            if _try_modal(modal):
+                return True
         sleep(0.55)
+
 
     doc_xps = [
         '//div[contains(@class,"jobs-easy-apply-footer")]//button[contains(@class, "artdeco-button--primary")]',
@@ -1996,7 +2013,9 @@ def save_questions_to_custom_config(questions_list: set) -> None:
             
             # Avoid duplicates by checking lower case label
             if f'"{clean_label.lower()}":' not in content.lower() and f"'{clean_label.lower()}':" not in content.lower():
-                new_entries.append(f'    "{clean_label}": "{answer}",')
+                escaped_label = clean_label.replace('"', '\\"')
+                escaped_answer = str(answer).replace('"', '\\"')
+                new_entries.append(f'    "{escaped_label}": "{escaped_answer}",')
         
         if new_entries:
             updated_content = content[:last_brace_index].rstrip() + "\n" + "\n".join(new_entries) + "\n" + content[last_brace_index:]
@@ -2483,6 +2502,8 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 actual = text.get_attribute("value")
                 if actual and actual.strip() != str(answer).strip():
                     print_lg(f"[WARN] Field rejected input — sent: '{answer}', got: '{actual}'")
+                if any(x in label for x in ['city', 'location', 'address', 'state', 'province', 'country', 'nationality']):
+                    do_actions = True
                 if do_actions:
                     commit_typeahead_choice(modal, text, str(answer), label_org)
             questions_list.add((label, text.get_attribute("value"), "text", prev_answer))

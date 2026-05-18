@@ -49,7 +49,7 @@ chromium_binary_path = ""          # Example: "/Applications/Chromium.app/Conten
 # unchecked regardless of this flag (automation policy). Kept for config compatibility.
 follow_companies = False           # True or False, Note: True or False are case-sensitive
 
-max_applied_jobs = 10              # Max number of jobs to apply for, before stopping the process
+max_applied_jobs = 20              # Max number of jobs to apply for, before stopping the process
 randomize_wait_times = True        # Enable human-like randomized delays between actions
 
 # Pause after search for manual review
@@ -70,6 +70,6 @@ offline_mode_strategy = "apply_all"
 # Do you want to see AI-related error alerts?
 showAiErrorAlerts = True           # True or False
 
-min_job_relevance_score = 60       # Minimum AI match score to apply to a job
+min_job_relevance_score = 15       # Minimum AI match score to apply to a job
 
 ############################################################################################################
