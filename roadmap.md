@@ -8,6 +8,7 @@
 - **Structural UI Locators**: Switched to CSS/XPath-based locators (e.g., `artdeco-button--primary`) to withstand LinkedIn's A/B testing and localized labels.
 - **Centralized Config Overlay**: Improved configuration management via `user.settings.json` to avoid fragile regex-based file modifications.
 - **Automated CI Regression**: Established a robust test suite (pytest) that runs in GitHub Actions with mock configuration support.
+- **Hardened Limits & Safety Controls**: Implemented a dynamic daily application limit of 7 jobs (tracked via history CSV), real-time anti-bot/CAPTCHA emergency stop, automatic 7-day log self-cleanup, and resolved years of experience extraction NameError bugs.
 
 ## 🎯 Next Steps (Short Term)
 - **#1 Enhanced Question Memory**: Store "Learned Answers" with better categorization to avoid re-asking the same dynamic questions across different jobs.

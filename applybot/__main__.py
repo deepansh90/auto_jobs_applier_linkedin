@@ -70,6 +70,7 @@ except ImportError:
     randomize_wait_times = True
     follow_companies = False
     min_job_relevance_score = 30
+    daily_apply_limit = 7
 
 # Allow CI / E2E harness to cap applies without editing committed settings.
 _maj_env = (os.environ.get("MAX_APPLIED_JOBS") or "").strip()
@@ -937,6 +938,30 @@ def get_applied_job_ids() -> set[str]:
     return job_ids
 
 
+def get_applied_today_count() -> int:
+    '''
+    Reads the history CSV and returns the number of applications completed today.
+    '''
+    count = 0
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    try:
+        if not os.path.exists(file_name):
+            return 0
+        with open(file_name, 'r', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            next(reader, None)  # Skip header
+            for row in reader:
+                if len(row) > 13:
+                    date_val = row[13].strip()
+                    if date_val.startswith(today_str):
+                        count += 1
+    except Exception as e:
+        print_lg(f"Error reading applied today count: {e}")
+    return count
+
+
+
+
 
 def set_search_location() -> None:
     '''
@@ -1449,14 +1474,6 @@ def get_job_description(
             jobDescription = jd_element.text
         else:
             raise Exception("Job description element not found")
-        
-        # Build config dictionary for job_matcher from global settings
-        matcher_config = {
-            "bad_words": bad_words,
-            "blacklisted_companies": blacklisted_companies,
-            "security_clearance": security_clearance,
-            "min_job_relevance_score": min_job_relevance_score
-        }
         
         # Get company/title from the current job scope (these are globals set in the main loop, 
         # but for get_job_description we don't have them passed in. Let's extract them from the UI if needed, 
@@ -2835,8 +2852,25 @@ def run_applications(search_terms: list[str]) -> None:
     global options, driver, actions, wait, linkedIn_tab
     current_city = current_city.strip()
 
+    applied_today = get_applied_today_count()
+    print_lg(f"[INFO] Applied to {applied_today} jobs today. Daily limit is {daily_apply_limit}.")
+    if applied_today >= daily_apply_limit:
+        dailyEasyApplyLimitReached = True
+        print_lg(f"\n###############  Daily application limit of {daily_apply_limit} reached! Safely stopping...  ###############\n")
+        return
+
     if randomize_search_order:  shuffle(search_terms)
     for searchTerm in search_terms:
+        if check_for_security_challenges(driver):
+            dailyEasyApplyLimitReached = True
+            print_lg("\n[CRITICAL] Security Challenge detected on LinkedIn! Stopping immediately to protect your account.\n")
+            return
+
+        if dailyEasyApplyLimitReached or get_applied_today_count() >= daily_apply_limit:
+            dailyEasyApplyLimitReached = True
+            print_lg(f"\n###############  Daily application limit of {daily_apply_limit} reached! Safely stopping...  ###############\n")
+            return
+
         # Re-run sticky filter reset for each keyword: LinkedIn can revert
         # per-account sticky toggles on each results-page reload.
         global _sticky_filters_reset_done
@@ -2877,6 +2911,16 @@ def run_applications(search_terms: list[str]) -> None:
             
                 for job in job_listings:
                     # if keep_screen_awake: pyautogui.press('shiftright')
+                    if check_for_security_challenges(driver):
+                        dailyEasyApplyLimitReached = True
+                        print_lg("\n[CRITICAL] Security Challenge detected on LinkedIn! Stopping immediately to protect your account.\n")
+                        return
+
+                    if dailyEasyApplyLimitReached or get_applied_today_count() >= daily_apply_limit:
+                        dailyEasyApplyLimitReached = True
+                        print_lg(f"\n###############  Daily application limit of {daily_apply_limit} reached! Safely stopping...  ###############\n")
+                        return
+
                     if current_count >= switch_number: break
                     print_lg("\n-@-\n")
 
@@ -3544,7 +3588,99 @@ def _warn_incomplete_ai_credentials() -> None:
             )
 
 
+def cleanup_old_logs(log_dir="logs", days=7) -> None:
+    '''
+    Deletes all files in log_dir (including screenshots/temp runs) older than 7 days.
+    '''
+    if not os.path.exists(log_dir):
+        return
+    now = time.time()
+    cutoff = now - (days * 24 * 60 * 60)
+    deleted_count = 0
+    try:
+        for root, dirs, files in os.walk(log_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                if file.startswith("."): 
+                    continue
+                try:
+                    mtime = os.path.getmtime(file_path)
+                    if mtime < cutoff:
+                        os.remove(file_path)
+                        deleted_count += 1
+                except Exception as e:
+                    print(f"[CLEANUP ERROR] Failed to delete {file_path}: {e}")
+        if deleted_count > 0:
+            print(f"[CLEANUP] Automatically cleaned up {deleted_count} log/temp files older than {days} days.")
+    except Exception as e:
+        print(f"[CLEANUP ERROR] Failed walking log dir: {e}")
+
+
+def check_for_security_challenges(driver: WebDriver) -> bool:
+    '''
+    Checks if LinkedIn is showing a security checkpoint, captcha, or anti-bot verification warning.
+    '''
+    if not driver: 
+        return False
+    try:
+        url = (driver.current_url or "").lower()
+        if any(x in url for x in ["/checkpoint/", "/challenge", "captcha", "security-check"]):
+            print_lg(f"[SECURITY ALERT] Security Challenge/Captcha URL detected: {driver.current_url}")
+            return True
+        
+        title = (driver.title or "").lower()
+        if any(x in title for x in ["security check", "security challenge", "quick check", "captcha", "verification"]):
+            print_lg(f"[SECURITY ALERT] Security Challenge/Captcha Page Title detected: '{driver.title}'")
+            return True
+        
+        # Check for challenge or captcha elements/iframes
+        selectors = [
+            "//iframe[contains(@src, 'arkose')]",
+            "//iframe[contains(@src, 'captcha')]",
+            "//iframe[contains(@src, 'recaptcha')]",
+            "//div[contains(@class, 'checkpoint')]",
+            "//div[contains(@id, 'captcha')]",
+            "//h1[contains(text(), 'security check') or contains(text(), 'Security check')]",
+            "//h1[contains(text(), 'Verifying your identity')]",
+            "//p[contains(text(), 'security verification')]"
+        ]
+        for sel in selectors:
+            try:
+                if driver.find_elements(By.XPATH, sel):
+                    print_lg(f"[SECURITY ALERT] Captcha/Challenge element matched XPath: '{sel}'")
+                    return True
+            except:
+                pass
+                
+        # Check body text for anti-bot/verification warning text
+        try:
+            body_text = driver.find_element(By.TAG_NAME, "body").text.lower()
+            if any(phrase in body_text for phrase in [
+                "let's do a quick security check",
+                "solve this puzzle",
+                "verify you're a human",
+                "we've detected unusual activity",
+                "unusual traffic from your computer network",
+                "restricted your account",
+                "account has been temporarily restricted",
+                "solve the challenge",
+                "please verify your identity",
+                "please verify you are a human"
+            ]):
+                print_lg("[SECURITY ALERT] Anti-bot/Challenge body text warning detected!")
+                return True
+        except:
+            pass
+            
+    except Exception:
+        pass
+    return False
+
+
 def main() -> None:
+    # 0. Clean up logs older than 1 week
+    cleanup_old_logs("logs", 7)
+
     total_runs = 1
     
     # 1. Initialize Browser

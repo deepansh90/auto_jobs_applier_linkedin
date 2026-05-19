@@ -28,3 +28,4 @@
 ## 🤖 Interaction Patterns
 - **Structural Locators**: Prefer CSS classes like `artdeco-button--primary` over text-based matching (e.g., "Submit") to ensure stability across A/B tests and languages.
 - **Logging**: Use `print_lg` (from `applybot.helpers`) for all runtime logging to ensure output is captured in session log files.
+- **Limits & Safety**: Always respect daily application limits (`daily_apply_limit`) and check if the browser is caught in a Captcha/security check (`check_for_security_challenges`) before executing any automated actions.

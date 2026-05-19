@@ -81,6 +81,8 @@ As the bot runs, it will create extensive log files in the `logs/` directory.
 - **Robust Submission**: Replaced fragile text-based "Submit" matching with structural CSS locators (e.g., `artdeco-button--primary`).
 - **Resilient Navigation**: Added stale-element recovery and retry loops for "Next" and "Review" buttons.
 - **Improved Logging**: Detailed skipping reasons and application counts in `logs/session_YYYYMMDD.log`.
+- **Hardened Limits & Safety Controls**: Implemented a dynamic daily application limit of 7 jobs (tracked via history CSV), real-time anti-bot/CAPTCHA emergency stop, automatic 7-day log self-cleanup, and resolved years of experience extraction NameError bugs.
+- **Fixed:** NameError `blacklisted_companies` in `get_job_description` causing years of experience extraction failure.
 - **Fixed:** `'NoneType' object has no attribute 'find_element'` during date posted extraction.
 - **Fixed:** Missing `config` imports during AI offline fallback.
 
