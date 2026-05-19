@@ -3636,8 +3636,6 @@ def check_for_security_challenges(driver: WebDriver) -> bool:
         # Check for challenge or captcha elements/iframes
         selectors = [
             "//iframe[contains(@src, 'arkose')]",
-            "//iframe[contains(@src, 'captcha')]",
-            "//iframe[contains(@src, 'recaptcha')]",
             "//div[contains(@class, 'checkpoint')]",
             "//div[contains(@id, 'captcha')]",
             "//h1[contains(text(), 'security check') or contains(text(), 'Security check')]",

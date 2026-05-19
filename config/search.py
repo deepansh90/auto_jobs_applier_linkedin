@@ -68,8 +68,8 @@ security_clearance = False         # True or False, Note: True or False are case
 did_masters = True                 # True or False, Note: True or False are case-sensitive
 
 # Avoid applying to jobs if their required experience is above your current_experience. (Set value as -1 if you want to apply to all ignoring their required experience...)
-current_experience = 5             # Minimum experience (E.g. 5, 10, 15...)
-min_experience = 5                 # Minimum years of experience required by the job (skip if less)
+current_experience = -1             # Minimum experience (E.g. 5, 10, 15...)
+min_experience = 0                 # Minimum years of experience required by the job (skip if less)
 ##
 
 
