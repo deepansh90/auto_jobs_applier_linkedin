@@ -2866,7 +2866,7 @@ def run_applications(search_terms: list[str]) -> None:
             print_lg("\n[CRITICAL] Security Challenge detected on LinkedIn! Stopping immediately to protect your account.\n")
             return
 
-        if dailyEasyApplyLimitReached or get_applied_today_count() >= daily_apply_limit:
+        if dailyEasyApplyLimitReached or (applied_today + easy_applied_count) >= daily_apply_limit:
             dailyEasyApplyLimitReached = True
             print_lg(f"\n###############  Daily application limit of {daily_apply_limit} reached! Safely stopping...  ###############\n")
             return
@@ -2916,7 +2916,7 @@ def run_applications(search_terms: list[str]) -> None:
                         print_lg("\n[CRITICAL] Security Challenge detected on LinkedIn! Stopping immediately to protect your account.\n")
                         return
 
-                    if dailyEasyApplyLimitReached or get_applied_today_count() >= daily_apply_limit:
+                    if dailyEasyApplyLimitReached or (applied_today + easy_applied_count) >= daily_apply_limit:
                         dailyEasyApplyLimitReached = True
                         print_lg(f"\n###############  Daily application limit of {daily_apply_limit} reached! Safely stopping...  ###############\n")
                         return
@@ -3650,25 +3650,7 @@ def check_for_security_challenges(driver: WebDriver) -> bool:
             except:
                 pass
                 
-        # Check body text for anti-bot/verification warning text
-        try:
-            body_text = driver.find_element(By.TAG_NAME, "body").text.lower()
-            if any(phrase in body_text for phrase in [
-                "let's do a quick security check",
-                "solve this puzzle",
-                "verify you're a human",
-                "we've detected unusual activity",
-                "unusual traffic from your computer network",
-                "restricted your account",
-                "account has been temporarily restricted",
-                "solve the challenge",
-                "please verify your identity",
-                "please verify you are a human"
-            ]):
-                print_lg("[SECURITY ALERT] Anti-bot/Challenge body text warning detected!")
-                return True
-        except:
-            pass
+        
             
     except Exception:
         pass
