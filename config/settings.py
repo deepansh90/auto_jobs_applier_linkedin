@@ -70,7 +70,7 @@ offline_mode_strategy = "apply_all"
 # Do you want to see AI-related error alerts?
 showAiErrorAlerts = True           # True or False
 
-min_job_relevance_score = 15       # Minimum AI match score to apply to a job
+min_job_relevance_score = 0        # Minimum AI match score to apply to a job (0 = only hard filters)
 daily_apply_limit = 20             # Maximum number of jobs that can be applied to in a single day across runs
 
 ############################################################################################################

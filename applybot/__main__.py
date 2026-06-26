@@ -176,76 +176,122 @@ def _wait_for_job_details_panel(timeout: float = 8) -> WebElement | None:
     return None
 
 
+def _get_job_detail_root() -> WebElement | WebDriver:
+    """Return the open job detail pane (not the whole page / other cards)."""
+    for sel in (
+        ".jobs-search__job-details--wrapper",
+        ".jobs-details.jobs-unified-top-card",
+        ".jobs-unified-top-card",
+        "div.jobs-search__job-details",
+    ):
+        try:
+            els = driver.find_elements(By.CSS_SELECTOR, sel)
+            if els and els[0].is_displayed():
+                return els[0]
+        except Exception:
+            continue
+    return driver
+
+
 def _job_detail_is_external_apply() -> bool:
-    """True when the open job detail pane is off-site / non–Easy Apply."""
+    """True only when LinkedIn explicitly marks the listing as off-site apply."""
     try:
-        panel = _wait_for_job_details_panel(timeout=3)
-        root = panel if panel is not None else driver
+        root = _get_job_detail_root()
+        pane_text = root.text if hasattr(root, "text") else ""
         offsite_markers = (
             "Responses managed off LinkedIn",
             "Apply on company website",
             "Apply on employer site",
         )
-        try:
-            pane_text = root.text
-        except Exception:
-            pane_text = ""
-        if any(m in pane_text for m in offsite_markers):
-            return True
-        buttons = root.find_elements(
-            By.CSS_SELECTOR, "button.jobs-apply-button, a.jobs-apply-button"
-        )
-        for btn in buttons:
-            label = f"{btn.text or ''} {btn.get_attribute('aria-label') or ''}".lower()
-            if "easy apply" in label:
-                return False
-        return bool(buttons)
+        return any(m in pane_text for m in offsite_markers)
     except Exception:
         return False
 
 
-def _click_easy_apply_button() -> bool:
-    """Find and click Easy Apply on the currently open job detail pane."""
-    panel = _wait_for_job_details_panel(timeout=6)
-    scopes: list[WebElement | WebDriver] = []
-    if panel is not None:
-        scopes.append(panel)
-    scopes.append(driver)
+def _in_app_apply_button(root: WebElement | WebDriver) -> WebElement | None:
+    """Return the in-app apply button (Easy Apply / LinkedIn Apply), not off-site Apply."""
+    try:
+        buttons = root.find_elements(
+            By.CSS_SELECTOR, "button.jobs-apply-button, a.jobs-apply-button"
+        )
+    except Exception:
+        return None
+    for btn in buttons:
+        label = f"{btn.text or ''} {btn.get_attribute('aria-label') or ''}".lower()
+        if "linkedin apply" in label or "easy apply" in label:
+            return btn
+    for btn in buttons:
+        label = f"{btn.text or ''} {btn.get_attribute('aria-label') or ''}".lower()
+        if "apply on company" in label or "company website" in label:
+            continue
+        cls = btn.get_attribute("class") or ""
+        if "jobs-apply-button" in cls and "artdeco-button--3" in cls:
+            return btn
+    return None
 
-    easy_xpaths = [
-        ".//button[contains(@class,'jobs-apply-button') and contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'easy apply')]",
-        ".//button[contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'easy apply')]",
-        ".//button[contains(@class,'jobs-apply-button') and contains(@aria-label, 'Easy')]",
-        ".//button[contains(@class,'jobs-apply-button')][contains(., 'Easy Apply')]",
-    ]
-    for scope in scopes:
-        for xp in easy_xpaths:
+
+def _click_easy_apply_button() -> bool:
+    """Find and click Easy Apply / LinkedIn Apply on the open job detail pane."""
+    root = _get_job_detail_root()
+    try:
+        WebDriverWait(driver, 8).until(
+            lambda d: root.find_elements(
+                By.CSS_SELECTOR,
+                "button.jobs-apply-button, a.jobs-apply-button",
+            )
+        )
+    except Exception:
+        pass
+
+    btn = _in_app_apply_button(root)
+    if btn is not None:
+        try:
+            scroll_to_view(driver, btn)
             try:
-                btn = WebDriverWait(scope, 3).until(
-                    EC.element_to_be_clickable((By.XPATH, xp))
-                )
-                scroll_to_view(driver, btn)
-                try:
-                    btn.click()
-                except ElementClickInterceptedException:
-                    driver.execute_script("arguments[0].click();", btn)
+                btn.click()
+            except ElementClickInterceptedException:
+                driver.execute_script("arguments[0].click();", btn)
+            return True
+        except Exception:
+            try:
+                driver.execute_script("arguments[0].click();", btn)
                 return True
             except Exception:
-                try:
-                    btn = scope.find_element(By.XPATH, xp)
-                    driver.execute_script("arguments[0].click();", btn)
-                    return True
-                except Exception:
-                    continue
-    if DEBUG_VERBOSE:
+                pass
+
+    easy_xpaths = [
+        ".//button[contains(@class,'jobs-apply-button') and (contains(normalize-space(.),'Easy Apply') or contains(@aria-label,'Easy'))]",
+        ".//button[contains(translate(@aria-label,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'linkedin apply')]",
+        ".//button[contains(@class,'jobs-apply-button--top-card')]",
+        ".//button[contains(@class,'jobs-apply-button')][contains(.,'Easy Apply')]",
+        ".//button[contains(@class,'jobs-apply-button') and contains(@class,'artdeco-button--3')]",
+    ]
+    for xp in easy_xpaths:
         try:
-            labels = [
-                (b.text or b.get_attribute("aria-label") or "")[:60]
-                for b in driver.find_elements(By.CSS_SELECTOR, "button.jobs-apply-button")
-            ]
-            dbg(f"No Easy Apply button; jobs-apply-button labels: {labels[:5]}")
+            btn = WebDriverWait(root, 3).until(
+                EC.element_to_be_clickable((By.XPATH, xp))
+            )
+            label = f"{btn.text or ''} {btn.get_attribute('aria-label') or ''}".lower()
+            if "apply on company" in label or "company website" in label:
+                continue
+            scroll_to_view(driver, btn)
+            try:
+                btn.click()
+            except ElementClickInterceptedException:
+                driver.execute_script("arguments[0].click();", btn)
+            return True
         except Exception:
-            pass
+            continue
+
+    try:
+        labels = [
+            (b.text or b.get_attribute("aria-label") or "")[:80]
+            for b in root.find_elements(By.CSS_SELECTOR, "button.jobs-apply-button, a.jobs-apply-button")
+        ]
+        if labels:
+            print_lg(f"[WARN] In-app apply not found; apply buttons on detail pane: {labels[:3]}")
+    except Exception:
+        pass
     return False
 
 
@@ -1474,19 +1520,6 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
         if applied_elements and applied_elements[0].text == "Applied":
             skip = True
             print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
-        if not skip and globals().get("easy_apply_only", True):
-            card_has_easy_apply = bool(
-                job.find_elements(
-                    By.XPATH,
-                    ".//*[contains(normalize-space(), 'Easy Apply')]",
-                )
-            )
-            if not card_has_easy_apply:
-                skip = True
-                print_lg(
-                    f'Skipping "{title} | {company}" (no Easy Apply badge on job card). '
-                    f"Job ID: {job_id}"
-                )
         try: 
             if not skip: 
                 # Try clicking via JS as click() is sometimes intercepted
@@ -3171,10 +3204,22 @@ def run_applications(search_terms: list[str]) -> None:
                     decision = evaluate_job(job_id, title, company, description, matcher_config, master_resume_data)
                     
                     if decision["skip"] and not skip:
-                        skip = True
-                        reason = decision["skip_reason"]
-                        message = decision.get("skip_message", "")
-                        print_lg(f"-- Deterministic hard filter triggered: {reason}")
+                        # When f_EA=true already filters to Easy Apply listings, do not
+                        # block on deterministic score — try the apply flow (May 2026 behavior).
+                        if (
+                            easy_apply_only
+                            and decision.get("skip_reason", "").startswith("Deterministic Score Too Low")
+                        ):
+                            print_lg(
+                                f"-- Ignoring low deterministic score ({decision['deterministic_score']}) "
+                                f"because easy_apply_only=True (LinkedIn f_EA filter active)."
+                            )
+                            decision["skip"] = False
+                        else:
+                            skip = True
+                            reason = decision["skip_reason"]
+                            message = decision.get("skip_message", "")
+                            print_lg(f"-- Deterministic hard filter triggered: {reason}")
                     
                     if not skip and decision["deterministic_score"] >= 75:
                         print_lg(f"-- Deterministic score is {decision['deterministic_score']} (>= 75). Auto-approving, bypassing AI.")
