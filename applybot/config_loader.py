@@ -42,6 +42,8 @@ def apply_user_overlay():
     target_map = {
         "search_terms": "config.search",
         "search_location": "config.search",
+        "easy_apply_only": "config.search",
+        "date_posted": "config.search",
         "job_type": "config.search",
         "on_site": "config.search",
         "current_experience": "config.search",

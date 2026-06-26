@@ -132,6 +132,123 @@ def dbg(msg: str) -> None:
         print_lg(f"[DEBUG] {msg}")
 
 
+def _ensure_easy_apply_filter_pill(want_on: bool = True) -> None:
+    """Turn on LinkedIn's horizontal Easy Apply filter pill (new results-page layout)."""
+    if not want_on:
+        return
+    pill_xpaths = [
+        "//button[contains(@class,'search-reusables__filter-pill-button') and contains(normalize-space(.),'Easy Apply')]",
+        "//button[contains(@class,'artdeco-pill') and contains(normalize-space(.),'Easy Apply')]",
+        "//button[contains(@aria-label,'Easy Apply')]",
+        "//button[normalize-space()='Easy Apply']",
+        "//button[.//span[normalize-space()='Easy Apply']]",
+    ]
+    for xp in pill_xpaths:
+        try:
+            btn = driver.find_element(By.XPATH, xp)
+            pressed = (btn.get_attribute("aria-pressed") or "").lower() == "true"
+            selected = "artdeco-pill--selected" in (btn.get_attribute("class") or "")
+            if pressed or selected:
+                print_lg("[INFO] Easy Apply filter pill is ON.")
+                return
+            scroll_to_view(driver, btn)
+            btn.click()
+            buffer(click_gap)
+            print_lg("[INFO] Clicked Easy Apply filter pill -> ON.")
+            return
+        except Exception:
+            continue
+    dbg("Easy Apply filter pill not found on results page.")
+
+
+def _wait_for_job_details_panel(timeout: float = 8) -> WebElement | None:
+    for by, sel in (
+        (By.CSS_SELECTOR, ".jobs-unified-top-card"),
+        (By.CSS_SELECTOR, ".jobs-details__main-content"),
+        (By.CSS_SELECTOR, ".jobs-search__job-details"),
+    ):
+        try:
+            return WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((by, sel))
+            )
+        except Exception:
+            continue
+    return None
+
+
+def _job_detail_is_external_apply() -> bool:
+    """True when the open job detail pane is off-site / non–Easy Apply."""
+    try:
+        panel = _wait_for_job_details_panel(timeout=3)
+        root = panel if panel is not None else driver
+        offsite_markers = (
+            "Responses managed off LinkedIn",
+            "Apply on company website",
+            "Apply on employer site",
+        )
+        try:
+            pane_text = root.text
+        except Exception:
+            pane_text = ""
+        if any(m in pane_text for m in offsite_markers):
+            return True
+        buttons = root.find_elements(
+            By.CSS_SELECTOR, "button.jobs-apply-button, a.jobs-apply-button"
+        )
+        for btn in buttons:
+            label = f"{btn.text or ''} {btn.get_attribute('aria-label') or ''}".lower()
+            if "easy apply" in label:
+                return False
+        return bool(buttons)
+    except Exception:
+        return False
+
+
+def _click_easy_apply_button() -> bool:
+    """Find and click Easy Apply on the currently open job detail pane."""
+    panel = _wait_for_job_details_panel(timeout=6)
+    scopes: list[WebElement | WebDriver] = []
+    if panel is not None:
+        scopes.append(panel)
+    scopes.append(driver)
+
+    easy_xpaths = [
+        ".//button[contains(@class,'jobs-apply-button') and contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'easy apply')]",
+        ".//button[contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'easy apply')]",
+        ".//button[contains(@class,'jobs-apply-button') and contains(@aria-label, 'Easy')]",
+        ".//button[contains(@class,'jobs-apply-button')][contains(., 'Easy Apply')]",
+    ]
+    for scope in scopes:
+        for xp in easy_xpaths:
+            try:
+                btn = WebDriverWait(scope, 3).until(
+                    EC.element_to_be_clickable((By.XPATH, xp))
+                )
+                scroll_to_view(driver, btn)
+                try:
+                    btn.click()
+                except ElementClickInterceptedException:
+                    driver.execute_script("arguments[0].click();", btn)
+                return True
+            except Exception:
+                try:
+                    btn = scope.find_element(By.XPATH, xp)
+                    driver.execute_script("arguments[0].click();", btn)
+                    return True
+                except Exception:
+                    continue
+    if DEBUG_VERBOSE:
+        try:
+            labels = [
+                (b.text or b.get_attribute("aria-label") or "")[:60]
+                for b in driver.find_elements(By.CSS_SELECTOR, "button.jobs-apply-button")
+            ]
+            dbg(f"No Easy Apply button; jobs-apply-button labels: {labels[:5]}")
+        except Exception:
+            pass
+    return False
+
+
 _DATE_POSTED_TPR = {
     "Any time": None,
     "Past month": "r2592000",
@@ -1140,6 +1257,8 @@ def reset_sticky_account_filters_once() -> None:
                     buffer(click_gap)
                     flipped_any = True
                     print_lg(f"[INFO] Flipped sticky filter '{label}' -> {'ON' if want_on else 'OFF'}.")
+                elif label == "Easy Apply" and want_on:
+                    print_lg("[INFO] Easy Apply filter is ON (sticky account toggle).")
             except Exception as tog_err:
                 dbg(f"Could not read/flip sticky toggle '{label}': {tog_err}")
 
@@ -1167,6 +1286,9 @@ def reset_sticky_account_filters_once() -> None:
             print_lg("[INFO] Sticky filter reset complete.")
     except Exception as e:
         print_lg(f"[WARN] Sticky filter reset skipped (All filters button not found): {e}")
+
+    if globals().get("easy_apply_only", True):
+        _ensure_easy_apply_filter_pill(True)
 
 
 def apply_filters() -> None:
@@ -1352,6 +1474,19 @@ def get_job_main_details(job: WebElement, blacklisted_companies: set, rejected_j
         if applied_elements and applied_elements[0].text == "Applied":
             skip = True
             print_lg(f'Already applied to "{title} | {company}" job. Job ID: {job_id}!')
+        if not skip and globals().get("easy_apply_only", True):
+            card_has_easy_apply = bool(
+                job.find_elements(
+                    By.XPATH,
+                    ".//*[contains(normalize-space(), 'Easy Apply')]",
+                )
+            )
+            if not card_has_easy_apply:
+                skip = True
+                print_lg(
+                    f'Skipping "{title} | {company}" (no Easy Apply badge on job card). '
+                    f"Job ID: {job_id}"
+                )
         try: 
             if not skip: 
                 # Try clicking via JS as click() is sometimes intercepted
@@ -3152,10 +3287,12 @@ def run_applications(search_terms: list[str]) -> None:
                     uploaded = False
                     pre_submit_skip = False
                     # Case 1: Easy Apply Button
-                    # Use a strict XPath to ensure we only click Easy Apply buttons, 
-                    # preventing clicks on generic 'Apply' buttons that open external tabs (e.g., Workday).
-                    easy_xpath = ".//button[contains(@class, 'jobs-apply-button') and (contains(normalize-space(), 'Easy Apply') or contains(@aria-label, 'Easy'))]"
-                    if try_xp(driver, easy_xpath):
+                    if _job_detail_is_external_apply():
+                        print_lg(f'Skipping "{title} | {company}" (external/off-site apply). Job ID: {job_id}')
+                        skip_count += 1
+                        rejected_jobs.add(job_id)
+                        continue
+                    if _click_easy_apply_button():
                         modal = None
                         try: 
                             try:

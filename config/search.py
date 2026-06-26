@@ -18,7 +18,7 @@ question_3 = []                    # (dynamic multiple select)
 '''
 
 sort_by = "Most recent"            # "Most recent", "Most relevant" or ("" to not select) 
-date_posted = "Past 24 hours"         # "Any time", "Past month", "Past week", "Past 24 hours" or ("" to not select)
+date_posted = "Past month"        # "Any time", "Past month", "Past week", "Past 24 hours" or ("" to not select)
 salary = ""                        # "$40,000+", "$60,000+", "$80,000+", "$100,000+", "$120,000+", "$140,000+", "$160,000+", "$180,000+", "$200,000+"
 
 # True = only Easy Apply jobs (adds f_EA=true to the job search URL and toggles Easy Apply in All filters). False = include non–Easy Apply listings too.
