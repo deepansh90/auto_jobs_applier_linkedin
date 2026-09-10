@@ -53,7 +53,10 @@ except ImportError:
     min_experience = 0
 
 try:
-    from config.secrets import use_AI, username, password, ai_provider, llm_api_key
+    from config.secrets import (
+        use_AI, username, password, ai_provider, llm_api_key,
+        GEMINI_API_KEY, OPENAI_API_KEY,
+    )
 except ImportError:
     # CI Fallback: no AI, no credentials
     use_AI = False
@@ -61,6 +64,8 @@ except ImportError:
     password = ""
     ai_provider = "openai"
     llm_api_key = ""
+    GEMINI_API_KEY = ""
+    OPENAI_API_KEY = ""
 
 try:
     from config.settings import *
@@ -683,10 +688,7 @@ def is_logged_in_LN() -> bool:
     # Check for nav bar
     nav = try_find_by_classes(driver, ["global-nav", "nav-container"])
     if nav: return True
-    
-    # If it mentions total/overall, it's not skill-specific
-    if any(x in label_lower for x in ["total", "overall", "relevant", "work experience"]):
-        return False
+
     if try_linkText(driver, "Sign in"): return False
     if try_xp(driver, '//button[@type="submit" and contains(text(), "Sign in")]', click=False):
         return False
@@ -2185,16 +2187,30 @@ def save_questions_to_custom_config(questions_list: set) -> None:
         
         last_brace_index = content.rfind("}")
         if last_brace_index == -1: return
-        
+
+        # Do NOT persist answers that were blind fallbacks / random guesses — that is how this
+        # file accumulates garbage (e.g. a salary question stuck on the lowest dropdown band, or a
+        # total-experience question stuck on "Fresher").
+        _low_conf = set()
+        for _entry in randomly_answered_questions:
+            _lbl = _entry[0] if isinstance(_entry, (tuple, list)) else str(_entry)
+            _lbl = _lbl.split(" [ ")[0].split(" (")[0].rstrip(" ]").strip().lower()
+            if _lbl:
+                _low_conf.add(_lbl)
+
         new_entries = []
         for q_data in questions_list:
             if not q_data or len(q_data) < 2: continue
             label = q_data[0]
             answer = q_data[1]
-            
-            # Clean label of metadata we might have added
-            clean_label = label.split(" [ ")[0].split(" (")[0].strip()
+
+            # Clean label of metadata we might have added (same normalization as _low_conf above,
+            # incl. the trailing " ]" that radio/select entries carry, so the low-confidence
+            # filter actually matches them).
+            clean_label = label.split(" [ ")[0].split(" (")[0].rstrip(" ]").strip()
             if not clean_label or clean_label.lower() in ["unknown", ""]: continue
+            if clean_label.lower() in _low_conf: continue
+            if answer is None or str(answer).strip() == "": continue
             
             # Avoid duplicates by checking lower case label
             if f'"{clean_label.lower()}":' not in content.lower() and f"'{clean_label.lower()}':" not in content.lower():
@@ -2443,10 +2459,24 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                         _low_label = label_org.lower()
                         # High risk categories that we should never guess blindly
                         _high_risk = any(k in _low_label for k in ["sponsor", "visa", "legal", "citizen", "clearance", "race", "gender", "veteran", "disability", "identity", "ethnic"])
+                        # Salary/CTC/compensation buckets: the first real option is the LOWEST band
+                        # (e.g. "Up to 3 LPA"/"$0-40k"), which badly misrepresents a senior
+                        # candidate. Prefer the highest band instead of index 1.
+                        _is_salary = any(k in _low_label for k in [
+                            "salary", "ctc", "compensation", "remuneration",
+                            "salary package", "compensation package", "expected pay", "current pay",
+                        ])
                         if _high_risk:
                             print_lg(f"[WARN] High-risk dropdown '{label_org}' unmatched. Leaving blank instead of guessing.")
                             randomly_answered_questions.add((f'{label_org} [ {optionsText} ]', "select — HIGH RISK UNANSWERED"))
                             answer = ""
+                        elif _is_salary:
+                            _real_idx = [i for i, o in enumerate(optionsText) if o.strip().lower() not in ("", "select an option")]
+                            if _real_idx:
+                                select.select_by_index(_real_idx[-1])
+                                answer = select.first_selected_option.text
+                            print_lg(f"[WARN] No match for salary dropdown '{label_org}', selecting highest band: '{answer}'")
+                            randomly_answered_questions.add((f'{label_org} [ {optionsText} ]', "select — SALARY FALLBACK (highest band)"))
                         else:
                             n_opts = len(select.options)
                             if n_opts > 1:
@@ -2592,18 +2622,18 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                         else: answer = full_name
                     elif 'notice' in label:
                         answer = notice_period
-                    elif 'salary' in label or 'compensation' in label or 'ctc' in label or 'pay' in label: 
+                    elif 'salary' in label or 'compensation' in label or 'ctc' in label or 'pay' in label:
                         if 'current' in label or 'present' in label:
                             if 'month' in label:
                                 answer = current_ctc_monthly
-                            elif 'lakh' in label:
+                            elif 'lakh' in label or 'lpa' in label or 'lac' in label:
                                 answer = current_ctc_lakhs
                             else:
                                 answer = current_ctc
                         else:
                             if 'month' in label:
                                 answer = desired_salary_monthly
-                            elif 'lakh' in label:
+                            elif 'lakh' in label or 'lpa' in label or 'lac' in label:
                                 answer = desired_salary_lakhs
                             else:
                                 answer = desired_salary
@@ -2627,9 +2657,23 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                     ai_answer = ai_text_answer('answer_question', aiClient, label_org, options=None, question_type="text", job_description=job_description, about_company=None, user_information_all=user_information_all) if use_AI else ""
                     if ai_answer:
                         answer = ai_answer
+                        # "How many years with <specific skill>?": the model tends to echo the
+                        # candidate's total YOE even for niche tools. Cap to a believable ceiling
+                        # and never persist it — these are job-specific, not reusable facts.
+                        _skill_years_q = (
+                            ("experience" in label or "years" in label)
+                            and _label_looks_skill_specific_years(label)
+                        )
+                        if _skill_years_q:
+                            _digits = re.sub(r"[^\d]", "", str(answer))
+                            if _digits and int(_digits) > 6:
+                                answer = "6"
+                                print_lg(f'[cap] Skill-specific YOE for "{label_org}" capped {ai_answer!r} -> "6"')
+                            randomly_answered_questions.add((label_org, "text"))
                         print_lg(f'AI Answered received for question "{label_org}" \nhere is answer: "{answer}"')
-                        # Learn the answer for future review (P9)
-                        save_learned_answer(label_org, answer)
+                        if not _skill_years_q:
+                            # Learn the answer for future review (P9)
+                            save_learned_answer(label_org, answer)
                     else:
                         # Patch 7: Last-resort fallback for skill-specific years/experience
                         # questions that slipped past the main handler (e.g., "Total experience
@@ -2637,12 +2681,19 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                         # field causes LinkedIn validation errors → infinite Next loop.
                         if ("experience" in label or "years" in label) and years_of_experience:
                             if _label_looks_skill_specific_years(label):
-                                # Offline: use profile total (honest). Conservative "3" misrepresented
-                                # senior candidates; validation still uses min/max on the input.
+                                # Unknown specific skill, AI unavailable: claiming the full total YOE reads
+                                # as an obvious fabrication (e.g. "N years" of a tool only a few
+                                # years old). Cap at a believable ceiling for a senior generalist;
+                                # a genuine match should have a config/custom_questions.py entry.
+                                try:
+                                    _capped = str(min(int(str(years_of_experience).strip() or "0"), 6))
+                                except ValueError:
+                                    _capped = "5"
                                 print_lg(
-                                    f'[Patch7] Unknown skill (AI offline): using years_of_experience={years_of_experience} for "{label_org}"'
+                                    f'[Patch7] Unknown skill (AI unavailable): using capped YOE={_capped} for "{label_org}"'
                                 )
-                                answer = years_of_experience
+                                answer = _capped
+                                randomly_answered_questions.add((label_org, "text"))
                             else:
                                 print_lg(f'[Patch7] General experience fallback: answering "{label_org}" with years_of_experience={years_of_experience}')
                                 answer = years_of_experience
@@ -3015,7 +3066,15 @@ def discard_job() -> None:
 def run_applications(search_terms: list[str]) -> None:
     applied_jobs = get_applied_job_ids()
     rejected_jobs = set()
-    blacklisted_companies = set()
+    # Seed the "never apply here" list from config/search.py's `blacklisted_companies` (gitignored;
+    # see config/search.example.py). Case-insensitive substring match on the company name is applied
+    # later in job_matcher.check_hard_filters. Dynamically-detected blacklist hits (About-page bad
+    # words) are still added to this set at runtime.
+    try:
+        from config.search import blacklisted_companies as _blacklist_seed
+        blacklisted_companies = {c.strip() for c in _blacklist_seed if c and c.strip()}
+    except Exception:
+        blacklisted_companies = set()
     global current_city, failed_count, skip_count, easy_applied_count, external_jobs_count, tabs_count, pause_before_submit, pause_at_failed_question, useNewResume, dailyEasyApplyLimitReached
     global options, driver, actions, wait, linkedIn_tab
     current_city = current_city.strip()
@@ -3193,7 +3252,17 @@ def run_applications(search_terms: list[str]) -> None:
 
                     description, experience_required, skip, reason, message = get_job_description()
                     _rel_score: int | None = None
-                    
+
+                    # Off-site apply → skip NOW, before spending any AI calls (relevance / resume
+                    # tailoring / skill extraction). ~half of "Easy Apply" search results are
+                    # actually external-apply promoted listings. (Re-checked again after the
+                    # Easy Apply button below, in case the marker only appears post-click.)
+                    if not skip and _job_detail_is_external_apply():
+                        print_lg(f'Skipping "{title} | {company}" (external/off-site apply, pre-AI). Job ID: {job_id}')
+                        skip_count += 1
+                        rejected_jobs.add(job_id)
+                        continue
+
                     # --- Deterministic Matcher (P8) ---
                     matcher_config = {
                         "bad_words": bad_words,
@@ -3204,17 +3273,30 @@ def run_applications(search_terms: list[str]) -> None:
                     decision = evaluate_job(job_id, title, company, description, matcher_config, master_resume_data)
                     
                     if decision["skip"] and not skip:
-                        # When f_EA=true already filters to Easy Apply listings, do not
-                        # block on deterministic score — try the apply flow (May 2026 behavior).
+                        # When f_EA=true already filters to Easy Apply listings, the crude
+                        # deterministic score alone should not hard-block a job. But it must NOT
+                        # silently fall through to "apply" either (that caused off-target
+                        # applications on 2026-06-26). Instead, hand the job to the AI relevance
+                        # check; if AI can't adjudicate, skip conservatively.
                         if (
                             easy_apply_only
                             and decision.get("skip_reason", "").startswith("Deterministic Score Too Low")
                         ):
-                            print_lg(
-                                f"-- Ignoring low deterministic score ({decision['deterministic_score']}) "
-                                f"because easy_apply_only=True (LinkedIn f_EA filter active)."
-                            )
-                            decision["skip"] = False
+                            if use_AI and description != "Unknown" and master_resume_data:
+                                print_lg(
+                                    f"-- Low deterministic score ({decision['deterministic_score']}); "
+                                    f"deferring to AI relevance check (easy_apply_only=True)."
+                                )
+                                decision["skip"] = False
+                                decision["requires_ai"] = True
+                            else:
+                                skip = True
+                                reason = decision["skip_reason"]
+                                message = decision.get("skip_message", "")
+                                print_lg(
+                                    f"-- Low deterministic score ({decision['deterministic_score']}) and AI "
+                                    f"relevance check unavailable; skipping (easy_apply_only=True)."
+                                )
                         else:
                             skip = True
                             reason = decision["skip_reason"]
@@ -3271,7 +3353,11 @@ def run_applications(search_terms: list[str]) -> None:
                             else:
                                 print_lg("-- OFFLINE MODE: Skipping AI relevance check; applying without filtering (apply_all).")
                                 relevance = {}
-                        elif isinstance(relevance, dict) and relevance.get("match_score", 0) >= 85:
+                        elif (
+                            isinstance(relevance, dict)
+                            and relevance.get("match_score", 0) >= 85
+                            and globals().get("auto_generate_tailored_resume", False)
+                        ):
                             print_lg(f"---- HIGH MATCH DETECTED ({relevance['match_score']}%)! Generating tailored resume...")
                             tailored_data = ai_call('generate_resume', aiClient, description, json.dumps(master_resume_data))
                             if isinstance(tailored_data, dict) and tailored_data.get("error") == "offline_mode":
@@ -3627,9 +3713,12 @@ def run_applications(search_terms: list[str]) -> None:
 
                     submitted_jobs(job_id, title, company, work_location, work_style, description, experience_required, skills, hr_name, hr_link, resume, reposted, date_listed, date_applied, job_link, application_link, questions_list, connect_request)
                     if uploaded:   useNewResume = False
-                    
-                    if questions_list:
-                        save_questions_to_custom_config(questions_list)
+
+                    # NOTE: intentionally NOT calling save_questions_to_custom_config here. Persisting
+                    # every answered question after each application is how config/custom_questions.py
+                    # accreted ~150 stale/fabricated entries. Answers are still recorded per-job in
+                    # history/ and logs/; curate config/custom_questions.py by hand, or run with
+                    # LEARNING_MODE for an explicit collection pass.
 
                     print_lg(f'Successfully saved "{title} | {company}" job. Job ID: {job_id} info')
                     current_count += 1

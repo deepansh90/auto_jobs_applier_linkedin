@@ -59,6 +59,12 @@ about_company_bad_words = ["Crossover", "Staffing", "Recruiting", "Jobot"]      
 # Skip checking for `about_company_bad_words` for these companies if they have these good words in their 'About Company' section... [Exceptions, For example, I want to apply to "Robert Half" although it's a staffing company]
 about_company_good_words = []      # (dynamic multiple search) or leave empty as []. Ex: ["Robert Half", "Dice"]
 
+# Hard "never apply here" list. Case-insensitive substring match on the company name shown on the
+# listing (so "Acme" also blocks "Acme Inc."). Seeded into the runtime blacklist in
+# applybot/__main__.py -> run_applications() and enforced by job_matcher.check_hard_filters().
+# Use this for your current employer, companies you've been rejected by, etc.
+blacklisted_companies = []         # Ex: ["Current Employer Inc", "SomeBigCo"]
+
 
 # Avoid applying to these companies if they have these bad words in their 'Job Description' section...  (In development)
 bad_words = ["US Citizen","USA Citizen","No C2C", "No Corp2Corp", ".NET", "Embedded Programming", "PHP", "Ruby"]                     # (dynamic multiple search) or leave empty as []. Case Insensitive. Ex: ["word_1", "phrase 1", "word word", "polygraph", "US Citizenship", "Security Clearance"]

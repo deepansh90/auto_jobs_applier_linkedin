@@ -18,13 +18,13 @@ run_in_background = False          # True or False. If True, this will make paus
 # NOTE: pause_before_submit has been moved to config/questions.py to avoid duplication.
 
 # Pause before submitting the first N applications to build trust
-confirm_first_n_applications = 0    # Set to 0 to disable
+confirm_first_n_applications = 5    # Set to 0 to disable
 
 # If you want to disable extensions then set disable_extensions as True (Better for performance)
 disable_extensions = True          # True or False, Note: True or False are case-sensitive
 
 # Run in safe mode. Set this true if chrome is taking too long to open or if you have multiple profiles in browser. This will open chrome in guest profile!
-safe_mode = False                  # True or False, Note: True or False are case-sensitive
+safe_mode = True                  # True or False, Note: True or False are case-sensitive
 
 # Do you want scrolling to be smooth or instantaneous? (Can reduce performance if True)
 smooth_scroll = False              # True or False, Note: True or False are case-sensitive
@@ -49,11 +49,11 @@ chromium_binary_path = ""          # Example: "/Applications/Chromium.app/Conten
 # unchecked regardless of this flag (automation policy). Kept for config compatibility.
 follow_companies = False           # True or False, Note: True or False are case-sensitive
 
-max_applied_jobs = 20              # Max number of jobs to apply for, before stopping the process
+max_applied_jobs = 10              # Max number of jobs to apply for, before stopping the process
 randomize_wait_times = True        # Enable human-like randomized delays between actions
 
 # Pause after search for manual review
-pause_after_filters = False          # Set to True if you want to verify results before bot starts applying
+pause_after_filters = True            # Set to True if you want to verify results before bot starts applying
 
 # >>>>>>>>>>> Browser Reuse Settings <<<<<<<<<<<
 # If you have so many Chrome instances, keep this False to let the bot manage and cleanup its own windows.
@@ -64,13 +64,19 @@ use_existing_browser = False
 debugger_port = 9222                
 
 # Strategy when AI is offline. Options: "pause", "skip_all", "apply_all"
-offline_mode_strategy = "apply_all"
+offline_mode_strategy = "skip_all"
 
 
 # Do you want to see AI-related error alerts?
 showAiErrorAlerts = True           # True or False
 
-min_job_relevance_score = 0        # Minimum AI match score to apply to a job (0 = only hard filters)
-daily_apply_limit = 20             # Maximum number of jobs that can be applied to in a single day across runs
+min_job_relevance_score = 60       # AI match-score floor (0-100). The relevance prompt caps off-type roles and
+                                  # low-comp roles at ~45-50, so a floor of ~55-60 filters those out.
+daily_apply_limit = 10             # Maximum number of jobs that can be applied to in a single day across runs
+
+# On a >=85% AI match, also generate a per-job tailored resume (.md/.tex in resume_output/).
+# These files are NEVER uploaded by the apply flow (it always sends default_resume_path), so this
+# costs one extra LLM call per strong match for an artifact you'd have to compile/use manually.
+auto_generate_tailored_resume = False   # True or False
 
 ############################################################################################################
