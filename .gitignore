@@ -7,9 +7,13 @@ config/questions.py
 config/profile.json
 config/answers.py
 config/learned_answers.json
+config/search.py
 
 config/user.settings.json
 config/.setup_complete
+
+# Local run reports / notes (contain personal details)
+AUTOAPPLY_*.md
 
 # Personal Data & Logs
 all resumes/
