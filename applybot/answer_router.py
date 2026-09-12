@@ -29,11 +29,17 @@ def save_learned_answer(question, answer, status="pending_review"):
         json.dump(answers, f, indent=4)
 
 def _match_keyword(keyword, text):
-    """Case-insensitive word-boundary match."""
+    """Case-insensitive word-boundary match.
+
+    Uses independent lookarounds instead of \\b on both sides: \\b requires a
+    word/non-word *transition*, which never matches immediately after a keyword
+    ending in punctuation (e.g. a question ending in "?") even at the true end of
+    the label — silently breaking every exact question-text key that ends in "?".
+    """
     k = str(keyword).lower().strip()
     t = str(text).lower().strip()
     if not k or not t: return False
-    return re.search(r'\b' + re.escape(k) + r'\b', t)
+    return re.search(r'(?<!\w)' + re.escape(k) + r'(?!\w)', t)
 
 
 
@@ -87,11 +93,28 @@ def get_answer_from_router(question_text, type="text"):
         except ImportError: pass
         
     # Salary
+    #
+    # BUG FIX: this used to always return the raw `desired_salary` figure regardless of
+    # whether the question asked for CURRENT vs expected salary, or asked for the answer
+    # "in lakhs/LPA" vs a raw rupee amount. That produced answers like submitting the raw
+    # rupee figure for "What's your current salary? (in lakhs per annum)" — read literally
+    # that's three orders of magnitude off. Now: pick current vs desired based on the
+    # question wording, and scale to lakhs/month when the question's own wording asks for
+    # that unit.
     if any(_match_keyword(w, q_low) for w in ["salary", "compensation", "expected ctc", "remuneration"]):
         try:
-            from config.questions import desired_salary
-            return str(desired_salary)
-        except ImportError: pass
+            from config.questions import desired_salary, current_ctc
+        except ImportError:
+            desired_salary = None
+            current_ctc = None
+        if desired_salary is not None and current_ctc is not None:
+            is_current = any(_match_keyword(w, q_low) for w in ["current", "present", "existing"])
+            base = current_ctc if is_current else desired_salary
+            if "month" in q_low:
+                return str(round(base / 12, 2))
+            if any(tok in q_low for tok in ["lakh", "lpa", "lac"]):
+                return str(round(base / 100000, 2))
+            return str(base)
         
     # Visa / Sponsorship
     if any(_match_keyword(w, q_low) for w in ["sponsor", "visa", "work auth", "authorized", "citizenship"]):
