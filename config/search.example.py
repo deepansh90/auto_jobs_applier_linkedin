@@ -72,6 +72,12 @@ bad_words = ["US Citizen","USA Citizen","No C2C", "No Corp2Corp", ".NET", "Embed
 # Do you have an active Security Clearance? (True for Yes and False for No)
 security_clearance = False         # True or False, Note: True or False are case-sensitive
 
+# Skip jobs whose posting explicitly advertises a fixed/max compensation below this floor
+# (in INR Lakhs Per Annum). Generic regex parse of the job description — see
+# job_matcher.extract_max_comp_lpa(). Jobs that don't mention a number at all are NOT
+# skipped (silence isn't a low offer). Set to 0 to disable.
+min_acceptable_ctc_lpa = 0         # Numeric, in Lakhs Per Annum (e.g. 40 = ₹40,00,000/year)
+
 # Do you have a Masters degree? (True for Yes and False for No). If True, the tool will apply to jobs containing the word 'master' in their job description and if it's experience required <= current_experience + 2 and current_experience is not set as -1. 
 did_masters = True                 # True or False, Note: True or False are case-sensitive
 

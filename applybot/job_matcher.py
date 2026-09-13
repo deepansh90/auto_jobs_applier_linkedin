@@ -3,13 +3,67 @@ import json
 import re
 from datetime import datetime
 
+def extract_max_comp_lpa(description):
+    """
+    Generic, pattern-based extraction of the highest compensation figure mentioned in a
+    job description, normalized to INR Lakhs Per Annum (LPA). Deliberately conservative:
+    returns None (not "0") when no compensation is mentioned at all, so silence is never
+    treated as a low offer.
+
+    Recognized patterns (case-insensitive), highest match wins when multiple are found:
+      - "₹40 LPA", "40 LPA", "up to 35LPA", "CTC: 40-50 LPA", "40 lac(s)", "40 lakhs"
+      - "$60,000 - $80,000", "$70k", "USD 70,000/year" (converted at ~83 INR/USD)
+    """
+    if not description:
+        return None
+    text = description
+
+    candidates = []
+
+    # INR LPA / lakh(s) / lac(s) patterns: "40 LPA", "up to 35 LPA", "40-50 LPA", "40 lakhs"
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*(?:-|to)?\s*(\d+(?:\.\d+)?)?\s*(?:lpa|lacs?|lakhs?)", text, re.IGNORECASE):
+        vals = [float(v) for v in m.groups() if v]
+        if vals:
+            candidates.append(max(vals))
+
+    # USD hourly/annual/"k" shorthand: "$60,000 - $80,000", "$70k", "USD 70,000"
+    for m in re.finditer(r"(?:\$|usd)\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*k?", text, re.IGNORECASE):
+        raw = m.group(1).replace(",", "")
+        try:
+            usd = float(raw)
+        except ValueError:
+            continue
+        # "$70k" style shorthand vs a bare "$700000" style figure
+        if "k" in text[m.end() - 1: m.end() + 1].lower():
+            usd *= 1000
+        if usd < 1000:
+            # Bare "$70" with a "k" suffix already handled above; anything this
+            # small without "k" is not a plausible annual salary — ignore.
+            continue
+        lpa = usd * 83 / 100000  # rough INR/USD conversion, annual USD -> INR Lakhs
+        candidates.append(lpa)
+
+    if not candidates:
+        return None
+    return max(candidates)
+
+
 def check_hard_filters(title, company, description, config):
     """
     Applies hard filters to immediately disqualify a job based on deterministic rules.
     Returns: (skip: bool, skipReason: str, skipMessage: str)
     """
     desc_low = description.lower()
-    
+
+    # 0. Compensation floor — generic pattern match, skip only when an explicit figure
+    # is found AND it's below the configured floor. A posting that says nothing about
+    # pay is not penalized.
+    min_ctc_lpa = config.get("min_acceptable_ctc_lpa", 0) or 0
+    if min_ctc_lpa > 0:
+        max_comp_lpa = extract_max_comp_lpa(description)
+        if max_comp_lpa is not None and max_comp_lpa < min_ctc_lpa:
+            return True, "Compensation Too Low", f"Posting advertises ~₹{max_comp_lpa:.0f} LPA, below configured floor of ₹{min_ctc_lpa:.0f} LPA."
+
     # 1. Blocked Companies (Case-insensitive exact/partial match)
     blacklisted = config.get("blacklisted_companies", [])
     for bl_company in blacklisted:

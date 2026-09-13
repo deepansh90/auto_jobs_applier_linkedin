@@ -51,6 +51,7 @@ except ImportError:
     did_masters = False
     current_experience = -1
     min_experience = 0
+    min_acceptable_ctc_lpa = 0
 
 try:
     from config.secrets import (
@@ -1791,41 +1792,56 @@ def commit_typeahead_choice(
         best_i = pick_best_typeahead_index(typed_value, texts)
         chosen = options[best_i]
 
+    click_committed = False
     if chosen is not None:
         try:
             scroll_to_view(driver, chosen)
             # Direct click works across all three typeahead variants.
             chosen.click()
             sleep(0.4)
+            click_committed = True
         except ElementClickInterceptedException:
             # Something overlays it; try JS click as a last resort.
             try:
                 driver.execute_script("arguments[0].click();", chosen)
                 sleep(0.4)
+                click_committed = True
             except Exception as js_err:
                 dbg(f"typeahead JS click failed for '{label_org}': {js_err}")
         except Exception as click_err:
+            # Commonly a StaleElementReferenceException: the option list can be
+            # re-rendered by a debounced network response right as we click.
+            # Previously this was swallowed at debug level with no follow-up,
+            # so the field was left holding raw unconfirmed text forever —
+            # the bot would retry the exact same failing sequence, form-error
+            # loop, and eventually discard the whole job as "stuck". Fall
+            # through to the keyboard fallback below instead of giving up.
             dbg(f"typeahead option click failed for '{label_org}': {click_err}")
-    else:
-        # Keyboard fallback — only helps for native-select-like widgets.
-        dbg(f"No typeahead options appeared for '{label_org}'; trying keyboard fallback.")
+
+    if not click_committed:
+        # Keyboard fallback — covers both "no options ever appeared" and
+        # "an option appeared but the click didn't land" (stale element,
+        # overlay, or a non-standard partner ATS widget).
+        dbg(f"Typeahead click didn't land for '{label_org}'; trying keyboard fallback.")
         try:
             text_input.send_keys(Keys.ARROW_DOWN)
             sleep(0.3)
             text_input.send_keys(Keys.ENTER)
+            sleep(0.3)
         except Exception as kb_err:
             dbg(f"typeahead keyboard fallback failed for '{label_org}': {kb_err}")
 
     # Verification: after commit, the input should hold a non-empty committed
     # value. For LinkedIn typeaheads the value often expands to include
-    # state/country (e.g. "Noida, Uttar Pradesh, India"). Log if it didn't.
+    # state/country (e.g. "Noida, Uttar Pradesh, India"). Warn (not just debug)
+    # if it didn't, since an uncommitted required typeahead is exactly what
+    # causes LinkedIn's "Please enter a valid answer" retry loop.
     try:
         committed = (text_input.get_attribute("value") or "").strip()
         if not committed:
             print_lg(f"[WARN] Typeahead '{label_org}' input is empty after commit attempt.")
         elif committed.lower() == (typed_value or "").strip().lower() and options:
-            # Typed value never expanded — may mean option wasn't committed.
-            dbg(f"Typeahead '{label_org}' value '{committed}' unchanged after click; dropdown may not have committed.")
+            print_lg(f"[WARN] Typeahead '{label_org}' value '{committed}' unchanged after click — dropdown likely did not commit; this field may keep failing validation.")
     except Exception:
         pass
 
@@ -2136,10 +2152,14 @@ def get_custom_answer(label: str) -> str | None:
     '''
     label_lower = label.lower()
     
-    # 1. Try exact word matches using boundaries to avoid partial matches (e.g., 'state' in 'statements')
+    # 1. Try exact word matches using boundaries to avoid partial matches (e.g., 'state' in 'statements').
+    # Use independent lookarounds instead of \b on both sides: \b requires a word/non-word
+    # *transition*, which never matches right after a keyword ending in punctuation (e.g. a
+    # question ending in "?") even when it's genuinely the end of the label — silently breaking
+    # every exact-question-text key in custom_questions.py that ends in "?".
     for keyword, value in custom_answers.items():
         kw_low = keyword.lower()
-        if re.search(rf"\b{re.escape(kw_low)}\b", label_lower):
+        if re.search(rf"(?<!\w){re.escape(kw_low)}(?!\w)", label_lower):
             return str(value)
             
     # 2. Try matching technical skills even if they are part of a word (e.g., 'LLMs', 'RAG-enabled')
@@ -2157,11 +2177,18 @@ def get_custom_answer(label: str) -> str | None:
             if keyword.lower() == skill:
                 return str(value)
 
-    # 4. Try matching as regex (if the key looks like one or contains special chars)
+    # 4. Fallback: plain-text keys that merely *contain* regex-special characters
+    # (e.g. "c++", a skill name, or "github profile?", a question ending in "?") must be
+    # matched literally — treating them as live regex is wrong and dangerous: "c++" as a
+    # regex means "one or more 'c'", which matches almost any English sentence and silently
+    # hijacks the answer for every later, more-specific key in this dict (confirmed: it
+    # returned "10" — the C++-years answer — for the unrelated question "Can you join within
+    # 2 weeks of receiving an offer?"). Escape before searching so this is a literal substring
+    # match, same as rule 1, just without the word-boundary requirement.
     for keyword, value in custom_answers.items():
         if any(c in keyword for c in [".*", "+", "^", "$", "?", "[", "("]):
             try:
-                if re.search(keyword, label_lower, re.IGNORECASE):
+                if re.search(re.escape(keyword), label_lower, re.IGNORECASE):
                     return str(value)
             except Exception:
                 continue
@@ -2383,24 +2410,46 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
                 # --- Patch 1A: Binary-option coercion ---
                 # If the <select> only has Yes/No-style options and our answer is numeric,
                 # coerce: positive number → "Yes", zero → "No".
+                #
+                # SAFETY: "positive number → Yes" is only a safe guess for benign
+                # capability questions ("can you join within 2 weeks?"). It is
+                # actively harmful for legal/background/eligibility questions — a
+                # stray numeric skill-years value leaking in from an unrelated
+                # keyword match must NEVER be turned into "Yes" on something like
+                # "Have you ever been convicted of a felony?". For that class of
+                # question, coerce to the truthful/safe default "No" instead
+                # (matching how require_visa/visa_sponsorship already default to
+                # "No" elsewhere in this config), regardless of the numeric sign.
                 _binary_labels = {"yes", "no", "agree", "disagree", "true", "false", "i agree", "i disagree"}
                 _real_opts = [o.strip().lower() for o in optionsText if o.strip().lower() not in ("", "select an option")]
+                _high_risk_binary = any(k in label for k in [
+                    "felony", "convicted", "conviction", "criminal", "misdemeanor",
+                    "background check", "arrest", "sponsor", "visa", "legal right to work",
+                    "citizen", "clearance", "security clearance", "lawsuit", "litigation",
+                ])
                 if (
                     len(_real_opts) <= 3
                     and all(ro in _binary_labels for ro in _real_opts)
                     and answer not in ("", None)
                     and str(answer).replace(".", "", 1).isdigit()
                 ):
-                    coerced = "Yes" if float(answer) > 0 else "No"
-                    print_lg(f'[Patch1A] Coerced numeric "{answer}" → "{coerced}" for binary select "{label_org}"')
+                    if _high_risk_binary:
+                        coerced = "No"
+                        print_lg(f'[Patch1A] Numeric "{answer}" for HIGH-RISK binary select "{label_org}" — refusing to coerce to "Yes"; defaulting to truthful "No" instead.')
+                    else:
+                        coerced = "Yes" if float(answer) > 0 else "No"
+                        print_lg(f'[Patch1A] Coerced numeric "{answer}" → "{coerced}" for binary select "{label_org}"')
                     answer = coerced
-                    # Patch 1A+: Auto-save corrected answer for future runs
-                    try:
-                        _clean_label = label_org.split(" [ ")[0].split(" (")[0].strip()
-                        if _clean_label:
-                            save_questions_to_custom_config({(_clean_label, coerced)})
-                    except Exception as _save_err:
-                        dbg(f"Patch1A+ auto-save failed: {_save_err}")
+                    # Patch 1A+: Auto-save corrected answer for future runs — but never
+                    # persist a high-risk guess into custom_questions.py; those must be
+                    # reviewed and entered deliberately, not auto-learned from a bug.
+                    if not _high_risk_binary:
+                        try:
+                            _clean_label = label_org.split(" [ ")[0].split(" (")[0].strip()
+                            if _clean_label:
+                                save_questions_to_custom_config({(_clean_label, coerced)})
+                        except Exception as _save_err:
+                            dbg(f"Patch1A+ auto-save failed: {_save_err}")
                 # --- End Patch 1A ---
                 try: 
                     select.select_by_visible_text(answer)
@@ -2593,7 +2642,21 @@ def fill_easy_apply_form(modal: WebElement, questions_list: set, work_location: 
             label = label_org.lower()
 
             prev_answer = text.get_attribute("value")
-            if not prev_answer or overwrite_previous_answers:
+            # If LinkedIn rejected the previously-filled value (a validation alert is
+            # showing next to this field), we must re-derive the answer even though
+            # prev_answer is non-empty — otherwise this whole block (and the Patch 8
+            # error-driven correction below) is skipped forever and the bot resubmits
+            # the same rejected value on every retry, looping until the stuck-job
+            # timeout fires.
+            _field_has_visible_error = False
+            try:
+                for _err in Question.find_elements(By.XPATH, ".//*[contains(@class,'error') or @role='alert']"):
+                    if _err.is_displayed() and _err.text:
+                        _field_has_visible_error = True
+                        break
+            except Exception:
+                pass
+            if not prev_answer or overwrite_previous_answers or _field_has_visible_error:
                 # Use answer_router for high-level precedence
                 router_answer = get_answer_from_router(label_org, type="text")
                 if router_answer:
@@ -3268,7 +3331,8 @@ def run_applications(search_terms: list[str]) -> None:
                         "bad_words": bad_words,
                         "blacklisted_companies": blacklisted_companies,
                         "security_clearance": security_clearance,
-                        "min_job_relevance_score": min_job_relevance_score
+                        "min_job_relevance_score": min_job_relevance_score,
+                        "min_acceptable_ctc_lpa": min_acceptable_ctc_lpa,
                     }
                     decision = evaluate_job(job_id, title, company, description, matcher_config, master_resume_data)
                     
