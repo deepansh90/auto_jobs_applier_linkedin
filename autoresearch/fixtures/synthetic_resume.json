@@ -1,0 +1,10 @@
+{
+  "_note": "SYNTHETIC fixture for the --smoke harness check only. Not a real resume.",
+  "master_resume": {
+    "title": "Staff AI Engineer | Principal AI Engineer | Lead AI Engineer | Machine Learning Engineer | Agentic AI Architect",
+    "skills": {
+      "technologies": ["Python", "Java", "Scala", "LLM", "RAG", "LangChain", "PyTorch", "AWS", "Kubernetes", "Kafka", "Microservices", "REST", "SQL", "Docker", "MLOps", "NLP"]
+    }
+  },
+  "search_terms": ["AI Engineer", "Staff AI Engineer", "Agentic AI Architect", "Software Architect"]
+}
