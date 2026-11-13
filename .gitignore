@@ -41,3 +41,8 @@ scratch/
 claude integration
 debug_output.txt
 auto-job-apply-profile/config/learned_answers.json
+
+# Autoresearch (labels contain job text + personal judgement)
+autoresearch/data/
+autoresearch/results.tsv
+autoresearch/run.log

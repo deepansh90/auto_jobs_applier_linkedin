@@ -177,6 +177,7 @@ def evaluate_job(job_id, title, company, description, config, master_resume=None
     Logs the decision to JSONL.
     Returns a dict with the decision.
     """
+    _capture_job(job_id, title, company, description)
     decision = {
         "timestamp": datetime.now().isoformat(),
         "job_id": job_id,
@@ -221,6 +222,39 @@ def evaluate_job(job_id, title, company, description, config, master_resume=None
         
     _log_decision(decision)
     return decision
+
+_captured_ids = None
+
+def _capture_job(job_id, title, company, description):
+    """
+    Opt-in (AUTOAPPLY_CAPTURE_JDS=1): append every job the bot evaluates, WITH its description, to
+    autoresearch/data/seen_jobs.jsonl so you can label them later (autoresearch/label.py).
+    Off by default; never affects the apply/skip decision.
+    """
+    global _captured_ids
+    if os.environ.get("AUTOAPPLY_CAPTURE_JDS") != "1":
+        return
+    try:
+        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "autoresearch", "data")
+        os.makedirs(data_dir, exist_ok=True)
+        path = os.path.join(data_dir, "seen_jobs.jsonl")
+        if _captured_ids is None:
+            _captured_ids = set()
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            _captured_ids.add(str(json.loads(line)["job_id"]))
+                        except Exception:
+                            pass
+        if str(job_id) in _captured_ids:
+            return
+        _captured_ids.add(str(job_id))
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(json.dumps({"job_id": str(job_id), "title": title, "company": company,
+                                "description": (description or "")[:8000]}) + "\n")
+    except Exception:
+        pass
 
 def _log_decision(decision):
     log_dir = "logs"
