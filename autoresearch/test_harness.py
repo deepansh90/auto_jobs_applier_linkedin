@@ -48,6 +48,31 @@ def test_auc_known_values():
     assert prepare.auc([5, 5, 5, 5], [1, 1, 0, 0]) == 0.5
 
 
+def test_holdout_unlocks_at_realistic_label_counts(tmp_path, monkeypatch, capsys):
+    """Regression: with 100 labels the ~18-item holdout was refused by the dev-sized minimum."""
+    rows = [{"job_id": f"T{i}", "title": "Staff AI Engineer" if i % 2 else "Sales Executive",
+             "company": f"Zzco{i} Ltd", "description": "python llm rag " * 10 if i % 2 else "cold calling",
+             "label": i % 2} for i in range(100)]
+    p = tmp_path / "labels.jsonl"
+    p.write_text("\n".join(json.dumps(r) for r in rows))
+    orig = prepare.load_config
+    monkeypatch.setattr(prepare, "LABELS", str(p))
+    monkeypatch.setattr(prepare, "load_config", lambda smoke=False: orig(smoke=True))
+    monkeypatch.setattr(sys, "argv", ["prepare.py", "--holdout"])
+    with pytest.raises(SystemExit) as e:
+        prepare.main()
+    out = capsys.readouterr().out
+    assert e.value.code == 0, out
+    assert "holdout_auc" in out and "HOLDOUT HAS ONLY" in out
+
+
+def test_effective_floor_never_exceeds_production_or_cap():
+    """Regression: an absolute 0.80 floor made a baseline with 0.26 recall fail its own guardrail."""
+    assert prepare.effective_floor(0.263) == 0.263
+    assert prepare.effective_floor(0.95) == prepare.RECALL_FLOOR
+    assert prepare.effective_floor(0.0) == 0.0
+
+
 def test_split_is_stable_and_disjoint():
     ids = [f"job{i}" for i in range(200)]
     held = [i for i in ids if prepare.is_holdout(i)]

@@ -29,7 +29,22 @@ SCORER = os.path.join(HERE, "candidate_scorer.py")
 
 MIN_DEV_LABELS = 30        # below this the number is noise - refuse to produce one
 MIN_PER_CLASS = 8
-RECALL_FLOOR = 0.80        # guardrail: of jobs you'd apply to, the scorer must still pass >= 80%
+MIN_HOLDOUT_LABELS = 15    # holdout is ~20% of labels; ~75+ total labels unlocks it
+MIN_HOLDOUT_PER_CLASS = 5
+RECALL_FLOOR = 0.80        # guardrail cap: never required to exceed 80% recall...
+# ...and never required to beat production either: the effective floor is min(RECALL_FLOOR, production recall),
+# i.e. "do not recall fewer of the jobs you'd apply to than the bot does today".
+
+
+def effective_floor(production_recall):
+    return min(RECALL_FLOOR, production_recall)
+
+
+def production_scores(split, master_resume, config):
+    """Score the split with the REAL production scorer: the honest baseline, never a stale copy."""
+    sys.path.insert(0, ROOT)
+    from applybot.job_matcher import score_job_match as production
+    return [production(r["title"], r["description"], master_resume, config) for r in split]
 TIME_BUDGET_S = 10.0
 HOLDOUT_MOD = 5            # job_id hash % 5 == 0  -> holdout (20%), stable across runs
 
@@ -136,9 +151,15 @@ def main():
     split = [r for r in rows if is_holdout(r["job_id"]) == args.holdout]
     n_pos = sum(1 for r in split if r["label"] == 1)
     n_neg = len(split) - n_pos
-    if not args.smoke and (len(split) < MIN_DEV_LABELS or n_pos < MIN_PER_CLASS or n_neg < MIN_PER_CLASS):
-        die(2, f"only {len(split)} labels in this split ({n_pos} apply / {n_neg} skip); need >= {MIN_DEV_LABELS} "
-               f"with >= {MIN_PER_CLASS} per class. Run: ./venv/bin/python autoresearch/label.py")
+    # The holdout is only ~20% of all labels, so it gets a lower bar (and a warning) - otherwise the
+    # overfitting check would stay locked until ~150 labels.
+    min_n, min_cls = (MIN_HOLDOUT_LABELS, MIN_HOLDOUT_PER_CLASS) if args.holdout else (MIN_DEV_LABELS, MIN_PER_CLASS)
+    if not args.smoke and (len(split) < min_n or n_pos < min_cls or n_neg < min_cls):
+        die(2, f"only {len(split)} labels in this split ({n_pos} apply / {n_neg} skip); need >= {min_n} "
+               f"with >= {min_cls} per class. Run: ./venv/bin/python autoresearch/label.py")
+    if args.holdout and len(split) < MIN_DEV_LABELS:
+        print(f"!!! HOLDOUT HAS ONLY {len(split)} LABELS: a sanity check for gross overfitting, not a measurement. "
+              f"Expect +/-0.1 AUC noise; label more jobs for a firm answer. !!!")
 
     guard_source(rows)
     master_resume, config, threshold = load_config(smoke=args.smoke)
@@ -165,16 +186,21 @@ def main():
     fp = sum(1 for s, l in zip(run1, labels) if s >= threshold and l == 0)
     recall = tp / n_pos if n_pos else float("nan")
     precision = tp / (tp + fp) if (tp + fp) else 0.0
-    ok = recall >= RECALL_FLOOR
+    base = production_scores(split, master_resume, config)
+    base_tp = sum(1 for s, l in zip(base, labels) if s >= threshold and l == 1)
+    base_recall = base_tp / n_pos if n_pos else float("nan")
+    floor = effective_floor(base_recall)
+    ok = recall >= floor - 1e-9
 
     print("---")
     print(f"{'holdout' if args.holdout else 'dev'}_auc:".ljust(22) + f"{auc(run1, labels):.4f}")
-    print("recall_at_threshold:".ljust(22) + f"{recall:.3f}   (floor {RECALL_FLOOR})")
+    print("recall_at_threshold:".ljust(22) + f"{recall:.3f}   (floor {floor:.3f} = min({RECALL_FLOOR}, production))")
+    print("production_auc:".ljust(22) + f"{auc(base, labels):.4f}   (today's bot; your gain = dev_auc - this)")
     print("precision_at_threshold:".ljust(22) + f"{precision:.3f}")
     print("threshold:".ljust(22) + f"{threshold}")
     print("n:".ljust(22) + f"{len(split)} (apply {n_pos} / skip {n_neg})")
     print("eval_seconds:".ljust(22) + f"{elapsed:.2f}")
-    print("guardrails:".ljust(22) + ("PASS" if ok else "FAIL (recall below floor -> discard)"))
+    print("guardrails:".ljust(22) + ("PASS" if ok else "FAIL (recalls fewer wanted jobs than production -> discard)"))
     sys.exit(0)
 
 

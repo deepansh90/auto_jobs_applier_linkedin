@@ -20,7 +20,7 @@ bot uses to decide apply vs skip - measured against the human's own labels.
 
 1. Propose a run tag from today's date (e.g. `nov13`). Branch `autoresearch/<tag>` must not exist. `git checkout -b autoresearch/<tag>`.
 2. Read `candidate_scorer.py`, `prepare.py`, and `applybot/job_matcher.py` for context.
-3. Check `./venv/bin/python autoresearch/prepare.py`. If it exits with code 2 ("not enough labels"), STOP and tell the human to run `./venv/bin/python autoresearch/label.py` (and to run the bot with `AUTOAPPLY_CAPTURE_JDS=1` to collect more jobs). Do not invent, import, or infer labels.
+3. Check `./venv/bin/python autoresearch/prepare.py`. If it exits with code 2 ("not enough labels"), STOP and tell the human to run `./venv/bin/python autoresearch/label.py` (and to run the bot with `AUTOAPPLY_CAPTURE_JDS=1` to collect more jobs). Do not invent, import, or infer labels. (Rule of thumb for the human: 30+ labels unlocks the dev loop, ~75+ unlocks the holdout check, 100-150 makes results trustworthy.)
 4. Create `autoresearch/results.tsv` with the header only. Record the baseline from the first run unmodified.
 
 ## Experimenting
@@ -37,7 +37,7 @@ Each run takes seconds: `./venv/bin/python autoresearch/prepare.py > autoresearc
 - use network, files, LLM calls, or randomness in the scorer (guardrails reject this)
 - hardcode a job id or company name from the labels (rejected, and it is overfitting anyway)
 
-**Goal:** highest `dev_auc` with `guardrails: PASS`. A run with `guardrails: FAIL` (recall below floor) or a crash is a discard.
+**Goal:** highest `dev_auc` with `guardrails: PASS`. A run with `guardrails: FAIL` (recall of jobs you'd apply to fell below production's, capped at 0.80) or a crash is a discard. `production_auc` in the output is today's bot on the same labels - your real gain is `dev_auc - production_auc`.
 
 **Simplicity criterion:** with ~30-100 labels, AUC differences of 0.01-0.02 are noise. Keep a change only if it is a clear gain *and* explainable in one sentence ("penalise 'fresher' roles"). A tiny gain that adds ugly special cases is a discard. Deleting logic at equal AUC is a win. Prefer fewer, human-explainable signals over many tuned constants.
 
